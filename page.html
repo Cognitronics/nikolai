@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NikolAI — Cognitronics</title>
+<meta name="description" content="NikolAI: a neural agent that learns English from scratch. Live training dashboard by Cognitronics.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23e8ecf3' stroke-width='3'%3E%3Cpolygon points='32,4 56,18 56,46 32,60 8,46 8,18'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23e8ecf3'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  :root{
+    --ink:#e8ecf3; --ink-soft:#8a94a8; --line:#1c2638; --paper:#060a12;
+    --white:#0b1120; --accent:#4d8bff; --accent-2:#19d3c5; --warn:#e0a24d; --mute:#5b667d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:"Helvetica Neue",Helvetica,Arial,system-ui,sans-serif;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;line-height:1.55}
+  a{color:inherit;text-decoration:none}
+
+  /* NAV */
+  nav{position:fixed;inset:0 0 auto 0;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:22px 6vw;background:rgba(6,10,18,.72);backdrop-filter:blur(12px);border-bottom:1px solid transparent;transition:border-color .3s}
+  nav.scrolled{border-color:var(--line)}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:300;letter-spacing:.32em;font-size:14px;text-transform:uppercase}
+  .brand b{font-weight:600}
+  .brand .proj{color:var(--ink-soft);padding-left:14px;margin-left:2px;border-left:1px solid var(--line)}
+  .brand .proj b{color:var(--accent-2);font-weight:600}
+  .links{display:flex;gap:36px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-soft);align-items:center}
+  .links a:hover{color:var(--ink)}
+  .live-dot{display:inline-flex;align-items:center;gap:8px;color:var(--accent-2)}
+  .live-dot i{width:7px;height:7px;border-radius:50%;background:var(--accent-2);box-shadow:0 0 0 0 rgba(25,211,197,.6);animation:pulse 2s infinite}
+  .live-dot.off{color:var(--mute)} .live-dot.off i{background:var(--mute);animation:none}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(25,211,197,.55)}70%{box-shadow:0 0 0 10px rgba(25,211,197,0)}100%{box-shadow:0 0 0 0 rgba(25,211,197,0)}}
+
+  /* HERO */
+  .hero{position:relative;min-height:92vh;display:flex;align-items:center;padding:120px 6vw 60px;overflow:hidden;background:radial-gradient(1200px 600px at 75% 40%,#101a30 0%,var(--paper) 60%)}
+  #net{position:absolute;inset:0;width:100%;height:100%}
+  .hero-inner{position:relative;max-width:900px;width:100%}
+  .eyebrow{display:flex;align-items:center;gap:16px;font-size:12px;letter-spacing:.35em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:28px}
+  .eyebrow::before{content:"";width:38px;height:1px;background:var(--accent)}
+  h1{font-size:clamp(44px,7vw,92px);font-weight:200;line-height:1.02;letter-spacing:-.02em}
+  h1 strong,h2 strong{font-weight:600}
+  .lede{margin-top:28px;max-width:600px;font-size:19px;font-weight:300;color:var(--ink-soft)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);margin-top:64px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(6,10,18,.55);backdrop-filter:blur(4px)}
+  .stat{padding:26px 0 24px 22px;border-left:1px solid var(--line)}
+  .stat:first-child{border-left:none;padding-left:0}
+  .stat .v{font-size:clamp(26px,3.2vw,40px);font-weight:200;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--ink-soft);margin-top:6px}
+
+  /* SECTIONS */
+  section{padding:110px 6vw;border-top:1px solid var(--line)}
+  section.alt{background:var(--white)}
+  .label{font-size:12px;letter-spacing:.35em;text-transform:uppercase;color:var(--accent);margin-bottom:22px}
+  h2{font-size:clamp(30px,4vw,52px);font-weight:200;line-height:1.1;letter-spacing:-.01em}
+  .sub{margin-top:22px;max-width:680px;font-size:17px;font-weight:300;color:var(--ink-soft)}
+  .small{font-size:13px;color:var(--ink-soft);font-weight:300}
+
+  /* MILESTONES */
+  .ms{list-style:none;margin-top:56px;border-top:1px solid var(--line)}
+  .ms li{display:grid;grid-template-columns:90px 1fr auto;gap:18px;align-items:baseline;padding:24px 0;border-bottom:1px solid var(--line)}
+  .ms .n{font-size:13px;letter-spacing:.3em;color:var(--accent)}
+  .ms h3{font-weight:400;font-size:20px}
+  .ms p{color:var(--ink-soft);font-weight:300;font-size:14px;margin-top:4px}
+  .chip{font-size:10px;letter-spacing:.3em;text-transform:uppercase;padding:6px 12px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
+  .chip.stable{border-color:var(--accent-2);color:var(--accent-2)}
+  .chip.latest{border-color:var(--accent);color:var(--accent)}
+  .hint{margin-top:22px}
+
+  /* CHART */
+  .picker{display:flex;flex-wrap:wrap;gap:8px;margin:40px 0 18px}
+  .picker button{font:inherit;font-size:11px;letter-spacing:.2em;text-transform:uppercase;padding:8px 14px;border:1px solid var(--line);background:transparent;color:var(--ink-soft);cursor:pointer;transition:border-color .2s,color .2s}
+  .picker button:hover{color:var(--ink)}
+  .picker button.on{border-color:var(--accent);color:var(--ink)}
+  .picker button i{display:inline-block;width:10px;height:2px;margin-right:8px;vertical-align:middle}
+  #chart svg{width:100%;height:auto;display:block}
+  #chart .empty{padding:60px 0}
+
+  /* LIVE */
+  .live{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:28px;margin-top:50px;align-items:start}
+  .worldbox{border:1px solid var(--line);background:linear-gradient(180deg,rgba(11,17,32,.92),rgba(6,10,18,.92));padding:22px 24px 18px}
+  .worldbox .tag{font-size:10px;letter-spacing:.35em;text-transform:uppercase;color:var(--mute);margin-bottom:6px}
+  .worldbox .worldstate{font-size:13px;color:var(--ink-soft);margin-bottom:14px;font-weight:300}
+  .worldbox .worldstate b{color:var(--ink);font-weight:500}
+  #log{height:430px;overflow-y:auto;font-size:14px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .logrow{display:grid;grid-template-columns:62px 82px 1fr;gap:12px;align-items:baseline;padding:4px 0}
+  .logrow .t{font-size:10px;color:var(--mute);font-variant-numeric:tabular-nums;letter-spacing:.08em}
+  .logrow .w{font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--mute)}
+  .logrow em{font-style:normal;font-weight:300;color:var(--ink-soft)}
+  .logrow .txt{display:block;color:var(--ink);font-weight:400}
+  .logrow .note{display:block;font-size:12px;color:var(--mute);font-weight:300}
+  .logrow.speaks .w,.logrow.speaks .txt{color:var(--accent-2)}
+  .logrow.kogli .w,.logrow.kogli_act .w{color:#c9a6ff} .logrow.kogli .txt{color:#ddc9ff}
+  .logrow.describes .w{color:var(--accent-2)} .logrow.describes .txt{color:#9fe8e1}
+  .logrow.teacher .w{color:var(--accent)}
+  .logrow.you .w,.logrow.you .txt{color:var(--warn)}
+  .logrow.milestone em{color:var(--accent-2)}
+  .talk{border:1px solid var(--line);padding:22px 24px}
+  .talk h3{font-weight:400;font-size:18px;margin-bottom:6px}
+  form{display:flex;border-bottom:1px solid var(--ink-soft);margin:18px 0 14px}
+  input{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font:inherit;font-size:15px;padding:10px 0}
+  input::placeholder{color:var(--mute)}
+  .chat{display:flex;flex-direction:column;gap:10px;margin:6px 0 18px}
+  .chat .me{align-self:flex-end;max-width:85%;color:var(--ink-soft);font-size:14px;border-right:2px solid var(--line);padding-right:10px;text-align:right}
+  .chat .bot{align-self:flex-start;max-width:85%;color:var(--accent-2);font-size:15px;border-left:2px solid var(--accent-2);padding-left:10px}
+  .chat .truth{display:block;margin-top:3px;color:var(--mute)}
+  form button{background:none;border:none;color:var(--ink);font:inherit;font-size:12px;letter-spacing:.25em;text-transform:uppercase;cursor:pointer}
+  form button:hover{color:var(--accent)}
+  .suggestions{display:flex;flex-wrap:wrap;gap:6px}
+  .suggestions button{font:inherit;font-size:12px;padding:6px 10px;border:1px solid var(--line);background:transparent;color:var(--ink-soft);cursor:pointer;transition:border-color .2s,color .2s}
+  .suggestions button:hover{border-color:var(--accent);color:var(--ink)}
+
+  /* TESTS */
+  .tests{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:48px;margin-top:50px;align-items:start}
+  .tests > div{min-width:0}
+  .tabwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tests h3{font-size:11px;letter-spacing:.35em;text-transform:uppercase;color:var(--ink-soft);font-weight:400;margin-bottom:8px}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:14px}
+  th{font-size:10px;letter-spacing:.25em;text-transform:uppercase;color:var(--mute);font-weight:400;text-align:left;padding:8px 8px 8px 0;border-bottom:1px solid var(--line)}
+  td{padding:9px 8px 9px 0;border-bottom:1px solid var(--line);vertical-align:baseline}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td .txt{display:block} td .note{display:block;font-size:12px;color:var(--mute);font-weight:300}
+  tr.never td:first-child{border-left:2px solid var(--accent-2);padding-left:10px}
+  .bar{display:inline-block;height:2px;background:var(--accent);vertical-align:middle;margin-right:8px}
+  .u-understood{color:var(--accent-2)} .u-notyet{color:var(--ink-soft)} .u-untestable{color:var(--mute)}
+  .example{padding:12px 0;border-bottom:1px solid var(--line)}
+  .example .txt{color:var(--accent-2)} .example .note{font-size:12px;color:var(--mute)}
+  .big{font-size:44px;font-weight:200;margin-top:6px}
+
+  footer{display:flex;justify-content:space-between;align-items:center;padding:34px 6vw;font-size:11px;letter-spacing:.25em;text-transform:uppercase;color:var(--ink-soft);border-top:1px solid var(--line);background:var(--paper)}
+
+  .r{opacity:0;transform:translateY(24px);transition:opacity 1s ease,transform 1s ease}
+  .r.in{opacity:1;transform:none}
+
+  @media (max-width:960px){
+    .links a{display:none}
+    .live,.tests{grid-template-columns:minmax(0,1fr)}
+    table{font-size:13px}
+    .stats{grid-template-columns:1fr 1fr}
+    .stat:nth-child(3){border-left:none;padding-left:0}
+    .stat:nth-child(n+3){border-top:1px solid var(--line)}
+    .ms li{grid-template-columns:48px 1fr}
+    .ms .chip{grid-column:2;justify-self:start}
+    .logrow{grid-template-columns:52px 1fr}
+    .logrow .t{display:none}
+    section{padding:80px 16px}
+    nav{padding:18px 16px} .hero{padding:110px 16px 50px}
+    .brand .proj{display:none}
+    footer{flex-direction:column;gap:12px;padding:30px 16px}
+  }
+  @media (prefers-reduced-motion:reduce){.r{opacity:1;transform:none;transition:none}}
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <a href="https://cognitronics.ai" class="brand">
+    <svg width="26" height="26" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polygon points="32,4 56,18 56,46 32,60 8,46 8,18"/><circle cx="32" cy="32" r="7" fill="currentColor"/><path d="M32 25V4M38 36l18 10M26 36L8 46" stroke-width="2"/></svg>
+    <span><b>Cogni</b>tronics</span><span class="proj">Nikol<b>AI</b></span>
+  </a>
+  <div class="links">
+    <a href="#milestones">Milestones</a>
+    <a href="#learning">Learning</a>
+    <a href="#live">Live</a>
+    <a href="#reading">Reading</a>
+    <a href="#tests">Tests</a>
+    <span class="live-dot" id="livedot"><i></i>Live</span>
+  </div>
+</nav>
+
+<header class="hero">
+  <canvas id="net"></canvas>
+  <div class="hero-inner">
+    <div class="eyebrow r">cognitronics.ai · Project</div>
+    <h1 class="r">Nikol<strong>AI.</strong></h1>
+    <p class="lede r">A neural agent learning English from scratch – and now with a friend, Kogli. No rules, no vocabulary list — only hunger, curiosity, books, a teacher’s voice and someone to talk to. This page shows its brain at work, live.</p>
+    <div class="stats r" id="stats">
+      <div class="stat"><div class="v">–</div><div class="k">Training steps</div></div>
+      <div class="stat"><div class="v">–</div><div class="k">Steps in English</div></div>
+      <div class="stat"><div class="v">–</div><div class="k">Words known</div></div>
+      <div class="stat"><div class="v">–</div><div class="k">Practice worlds</div></div>
+    </div>
+  </div>
+</header>
+
+<section id="milestones">
+  <div class="label r">01 — Milestones</div>
+  <h2 class="r">What it has learned.<br><strong>Proven, not claimed.</strong></h2>
+  <p class="sub r">Every milestone is a test against a baseline: with and without the spoken words, and against acting at random. It only counts as stable once it holds in three tests in a row.</p>
+  <ol class="ms" id="ms"><li><span class="n">—</span><div><h3 class="small">First test is running …</h3></div></li></ol>
+  <p class="small hint" id="teststatus"></p>
+</section>
+
+<section id="learning" class="alt">
+  <div class="label r">02 — Learning</div>
+  <h2 class="r">Training curves.<br><strong>One minute per point.</strong></h2>
+  <div class="picker" id="picker"></div>
+  <div id="chart"></div>
+</section>
+
+<section id="live">
+  <div class="label r">03 — Live</div>
+  <h2 class="r">Watch it think.<br><strong>Talk to it.</strong></h2>
+  <p class="sub r">NikolAI lives in a small world of five places — hut, orchard, forest, river and workshop — in real time, with its current brain. Everything it hears comes from its teacher; everything it says, it has learned by itself.</p>
+  <div class="live">
+    <div class="worldbox">
+      <div class="tag">World · real time</div>
+      <div class="worldstate" id="worldstate">–</div>
+      <div id="log"></div>
+    </div>
+    <div class="talk" id="talk">
+      <h3>Talk to it</h3>
+      <p class="small">Ask it something – “Where are you?”, “How are you?”, “What do you have?”, “What do you want?”, “What did you do?” – or say anything. It answers with what it learned from reading and from its teacher. Give one of the teacher’s instructions and you are the teacher: if it follows, it learns.</p>
+      <form id="form"><input id="text" placeholder="e.g. Where are you?" autocomplete="off" aria-label="Talk to NikolAI"><button>Send →</button></form>
+      <div id="chat" class="chat"></div>
+      <div class="suggestions" id="suggestions"></div>
+    </div>
+  </div>
+</section>
+
+<section id="reading" class="alt">
+  <div class="label r">04 — Reading</div>
+  <h2 class="r">It reads stories.<br><strong>And learns from them.</strong></h2>
+  <p class="sub r">NikolAI reads what a child hears and reads by about twelve – some 100 million words, all from people: parents talking to toddlers, conversations, children’s books, film subtitles, Simple Wikipedia (the BabyLM corpus). It keeps guessing the next word – nobody tells it what words mean. That reading brain is its hearing and speaking. The question: does it then understand instructions with words its teacher never used?</p>
+  <div class="tests">
+    <div>
+      <h3>Words it only knows from books</h3>
+      <p class="small">From a start that doesn’t give the answer away (several things to choose from, or the hut with four ways), 4 steps: with the sentence, without it. The teacher never says these words. Control: the same sentence with a made-up word (“Blick the stone!”) – if that works just as well, it only reacted to the noun.</p>
+      <div id="synonyms" class="small" style="margin-top:14px">–</div>
+    </div>
+    <div>
+      <h3>Reading</h3>
+      <div id="readstats" class="small">–</div>
+      <h3 style="margin-top:44px">It continues a story</h3>
+      <div id="story" class="small">–</div>
+    </div>
+  </div>
+</section>
+
+<section id="tests" class="alt">
+  <div class="label r">05 — Tests</div>
+  <h2 class="r">The evidence.<br><strong>Raw numbers.</strong></h2>
+  <div class="tests">
+    <div>
+      <h3>Understanding instructions</h3>
+      <p class="small">Success within 15 steps, 30 trials each — with the sentence, without it (same situation), and acting at random. Marked rows: never trained, only tested.</p>
+      <div id="instr-table" class="small" style="margin-top:14px">First test is running …</div>
+    </div>
+    <div>
+      <h3>Asking for things</h3>
+      <p class="small">In the workshop, far from the apple tree, 10 steps, no instruction: does it say the right word on its own?</p>
+      <div id="requests" class="small" style="margin-top:14px">–</div>
+      <h3 style="margin-top:44px">Using what it is told</h3>
+      <p class="small">Hungry in the hut, the apple tree is empty, one apple lies somewhere else. 4 steps — two are enough if it understood.</p>
+      <div id="where_is" class="small" style="margin-top:14px">–</div>
+      <h3 style="margin-top:44px">Telling its friend</h3>
+      <p class="small">NikolAI stands where an apple lies; its friend Kogli is hungry in the hut; no teacher. Does Kogli get the apple within 10 steps? “Cut” = they can’t hear each other.</p>
+      <div id="friend" class="small" style="margin-top:14px">–</div>
+      <h3 style="margin-top:44px">Answering questions about itself</h3>
+      <p class="small">A random situation, then the teacher asks. Exactly the true answer? “Guessing” = always giving the most frequent answer.</p>
+      <div id="questions" class="small" style="margin-top:14px">–</div>
+      <h3 style="margin-top:44px">Describing what happened</h3>
+      <div id="describing" class="small">–</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span>&copy; <span id="y"></span> Cognitronics</span>
+  <span>cognitronics.ai · NikolAI</span>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const quote = s => /[“”]/.test(s) ? esc(s) : `“${esc(s)}”`;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cssVar = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt = n => n >= 1e9 ? (n/1e9).toFixed(2) + " B" : n >= 1e6 ? (n/1e6).toFixed(1) + " M" : n >= 1e3 ? Math.round(n/1e3) + " K" : String(n);
+document.getElementById("y").textContent = new Date().getFullYear();
+const nav = document.getElementById("nav");
+addEventListener("scroll", () => nav.classList.toggle("scrolled", scrollY > 20));
+
+const CURVES = {
+  hunger: {name: "Hunger", color: "--warn"},
+  instructions_done_per_1000: {name: "Instructions done / 1000", color: "--accent"},
+  eaten_per_1000: {name: "Apples eaten / 1000", color: "--accent-2"},
+  said_per_1000: {name: "Utterances / 1000", color: "--ink-soft"},
+  describe_error: {name: "Describing error", color: "--accent-2"},
+  repeat_error: {name: "Repeating error", color: "--accent"},
+  world_error: {name: "Surprise (world model)", color: "--warn"},
+  curiosity: {name: "Curiosity reward", color: "--ink-soft"},
+  read_error: {name: "Reading error", color: "--accent-2"},
+  answer_error: {name: "Answering error", color: "--accent"}};
+let selected = ["hunger", "instructions_done_per_1000"], latest = null;
+
+function picker(){
+  $("#picker").innerHTML = Object.entries(CURVES).map(([k, v]) =>
+    `<button data-k="${k}" class="${selected.includes(k) ? "on" : ""}"><i style="background:${cssVar(v.color)}"></i>${esc(v.name)}</button>`).join("");
+  document.querySelectorAll("#picker button").forEach(b => b.onclick = () => {
+    const k = b.dataset.k; selected = selected.includes(k) ? selected.filter(x => x !== k) : [...selected, k];
+    picker(); if (latest) chart(latest.curves);
+  });
+}
+
+function chart(d){
+  if (!d || d.length < 2){ $("#chart").innerHTML = '<p class="small empty">The first points appear after a few minutes of training.</p>'; return; }
+  const W = 1100, H = 300, L = 8, R = 70, T = 14, B = 34;
+  const x0 = d[0].steps, x1 = d[d.length-1].steps;
+  const sx = x => L + (W - L - R) * (x1 === x0 ? 1 : (x - x0) / (x1 - x0));
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Training curves">`;
+  for (let i = 0; i <= 4; i++){ const y = T + (H - T - B) * i / 4; s += `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${cssVar("--line")}"/>`; }
+  selected.forEach(k => {
+    const ys = d.map(p => p[k] ?? 0), mx = Math.max(...ys, 1e-9), f = cssVar(CURVES[k].color);
+    const sy = y => H - B - (H - T - B) * (y / mx);
+    s += `<polyline fill="none" stroke="${f}" stroke-width="1.6" stroke-linejoin="round" points="${d.map((p, i) => sx(p.steps).toFixed(1) + "," + sy(ys[i]).toFixed(1)).join(" ")}"/>`;
+    const last = ys[ys.length-1];
+    s += `<text x="${W-R+8}" y="${sy(last)+4}" font-size="12" fill="${f}" font-family="Helvetica Neue,Arial">${last >= 10 ? last.toFixed(0) : last.toFixed(2)}</text>`;
+  });
+  s += `<text x="${L}" y="${H-10}" font-size="11" fill="${cssVar("--mute")}" letter-spacing="2">${fmt(x0)} STEPS</text>`;
+  s += `<text x="${W-R}" y="${H-10}" font-size="11" fill="${cssVar("--mute")}" text-anchor="end" letter-spacing="2">${fmt(x1)}</text></svg>`;
+  $("#chart").innerHTML = s + '<p class="small" style="margin-top:8px">Each curve has its own scale.</p>';
+}
+
+const WHO = {act: "acts", teacher: "teacher", speaks: "NikolAI", describes: "NikolAI", you: "you", milestone: "milestone",
+  kogli: "Kogli", kogli_act: "Kogli", teacher_kogli: "to Kogli"};
+function logrow(e){
+  const spoken = e.spoken ? `<span class="txt">${quote(e.text)}</span>` : `<em>${esc(e.text)}</em>`;
+  return `<div class="logrow ${esc(e.kind || "act")}"><span class="t">${esc(e.t)}</span><span class="w">${esc(WHO[e.kind] || "")}</span><div>${spoken}</div></div>`;
+}
+
+function render(z){
+  latest = z;
+  $("#livedot").classList.remove("off");
+  const st = document.querySelectorAll("#stats .v");
+  [fmt(z.steps), fmt(Math.max(0, z.steps - (z.english_since || 0))), z.words_known, z.worlds].forEach((v, i) => st[i].textContent = v);
+  const l = z.live, carry = Object.entries(l.backpack).map(([k, v]) => v + "× " + k).join(", ") || "nothing";
+  $("#worldstate").innerHTML = `In the <b>${esc(l.place)}</b> · hunger <b>${l.hunger.toFixed(2)}</b> · carries <b>${esc(carry)}</b>`
+    + (l.instruction ? `<br>Current instruction: <b>${quote(l.instruction)}</b>` : "")
+    + (l.kogli ? `<br>Kogli: in the <b>${esc(l.kogli.place)}</b> · hunger <b>${l.kogli.hunger.toFixed(2)}</b> · carries <b>${esc(Object.entries(l.kogli.backpack).map(([k, v]) => v + "× " + k).join(", ") || "nothing")}</b>` : "")
+    + (l.tree_rests ? `<br><span class="small">The apple tree bears nothing today – only windfall apples.</span>` : "")
+    + (l.apple_lies ? `<br><span class="small">Only the teacher knows: an apple lies in the ${esc(l.apple_lies)}.</span>` : "");
+  // milestones
+  if (z.milestones.length){
+    const CHIP = {stable: "Stable", latest: "Last test", no: "Not yet"};
+    $("#ms").innerHTML = z.milestones.map((m, i) => {
+      const e = m.reached;
+      const info = m.status === "stable" && e ? `Stable since ${fmt(e.steps)} steps · ${e.runtime_h} h of learning`
+                 : m.status === "latest" ? "Passed the latest test — needs three in a row to count"
+                 : e ? "Was stable before — not in the latest test" : "Not reached yet";
+      return `<li><span class="n">${String(i + 1).padStart(2, "0")}</span><div><h3>${esc(m.name)}</h3><p>${esc(info)}</p></div><span class="chip ${m.status}">${CHIP[m.status] || ""}</span></li>`;
+    }).join("");
+  }
+  const p = z.latest_tests;
+  if (p){
+    $("#teststatus").textContent = `Latest test at ${fmt(p.steps)} steps. Phase 1 — average hunger ${p.phase1.hunger.toFixed(2)} (acting at random: ${p.phase1_random.hunger.toFixed(2)}).`;
+    const pct = v => Math.round(v * 100) + " %";
+    const VERDICT_CLASS = {understood: "u-understood", "not yet": "u-notyet", "not testable": "u-untestable"};
+    $("#instr-table").innerHTML = `<div class="tabwrap"><table><tr><th>Instruction</th><th style="text-align:right">With</th><th style="text-align:right">Without</th><th style="text-align:right">Random</th><th>Verdict</th></tr>` +
+      p.phase2.map(r => `<tr class="${r.never_trained ? "never" : ""}"><td><span class="txt">${quote(r.instruction)}</span>${r.never_trained ? `<span class="note">never trained — test only</span>` : ""}</td>
+        <td class="n"><span class="bar" style="width:${Math.round(r.with_cue * 40)}px"></span>${pct(r.with_cue)}</td><td class="n">${pct(r.without_cue)}</td><td class="n">${pct(r.at_random)}</td>
+        <td class="${VERDICT_CLASS[r.verdict] || ""}">${esc(r.verdict || "")}</td></tr>`).join("") + `</table></div>`;
+    if (p.phase4){
+      const w = p.phase4.agent, rnd = p.phase4.at_random;
+      $("#requests").innerHTML = `<div class="tabwrap"><table><tr><th>Situation</th><th>Says</th><th style="text-align:right">NikolAI</th><th style="text-align:right">Random</th></tr>
+        <tr><td>Hungry</td><td>“apple”</td><td class="n">${pct(w.hungry.apple)}</td><td class="n">${pct(rnd.hungry.apple)}</td></tr>
+        <tr><td>Full</td><td>“apple”</td><td class="n">${pct(w.full.apple)}</td><td class="n">${pct(rnd.full.apple)}</td></tr>
+        <tr><td>“Build a stone axe!” — only bast missing</td><td>“bast”</td><td class="n">${pct(w.bast_missing.bast)}</td><td class="n">${pct(rnd.bast_missing.bast)}</td></tr>
+        <tr><td>“Build a stone axe!” — nothing missing</td><td>“bast”</td><td class="n">${pct(w.all_there.bast)}</td><td class="n">${pct(rnd.all_there.bast)}</td></tr></table></div>
+        <p class="small" style="margin-top:10px">First person (“I want …”) in ${pct(w.first_person_share)} of ${w.requests} requests.</p>`;
+    }
+    if (p.phase5){
+      const f = p.phase5.questions;
+      $("#where_is").innerHTML = `<div class="tabwrap"><table><tr><th>Hears</th><th style="text-align:right">With</th><th style="text-align:right">Without</th><th style="text-align:right">Random</th><th>Verdict</th></tr>` +
+        p.phase5.where_is.map(r => `<tr><td>${quote(r.sentence)}</td><td class="n"><span class="bar" style="width:${Math.round(r.with_cue * 40)}px"></span>${pct(r.with_cue)}</td><td class="n">${pct(r.without_cue)}</td><td class="n">${pct(r.at_random)}</td><td class="${VERDICT_CLASS[r.verdict] || ""}">${esc(r.verdict)}</td></tr>`).join("") +
+        `</table></div><p class="small" style="margin-top:10px">Asks “where …?” on its own within 10 steps: hungry ${pct(f.hungry)} · full ${pct(f.full)} · random ${pct(f.at_random)}.</p>`;
+    }
+    if (p.phase8){
+      $("#friend").innerHTML = `<div class="tabwrap"><table><tr><th>Apple lies</th><th style="text-align:right">Talking</th><th style="text-align:right">Cut</th><th style="text-align:right">Random</th><th style="text-align:right">Names place</th><th>Verdict</th></tr>` +
+        p.phase8.friend.map(r => `<tr><td>${esc({forest: "in the forest", river: "at the river", workshop: "in the workshop"}[r.place] || r.place)}</td><td class="n"><span class="bar" style="width:${Math.round(r.with_cue * 40)}px"></span>${pct(r.with_cue)}</td><td class="n">${pct(r.without_cue)}</td><td class="n">${pct(r.at_random)}</td><td class="n">${pct(r.named)}</td><td class="${VERDICT_CLASS[r.verdict] || ""}">${esc(r.verdict)}</td></tr>`).join("") + `</table></div>`;
+    }
+    if (p.phase7){
+      $("#questions").innerHTML = `<div class="tabwrap"><table><tr><th>Asked</th><th style="text-align:right">Right</th><th style="text-align:right">Guessing</th><th>Verdict</th></tr>` +
+        p.phase7.questions.map(r => `<tr><td>${quote(r.question)}<span class="note">e.g. said ${quote(r.examples[0].said || "…")} – true: ${quote(r.examples[0].true_answer)}</span></td><td class="n"><span class="bar" style="width:${Math.round(r.correct * 40)}px"></span>${pct(r.correct)}</td><td class="n">${pct(r.guessing)}</td><td class="${VERDICT_CLASS[r.verdict] || ""}">${esc(r.verdict)}</td></tr>`).join("") + `</table></div>`
+        + `<p class="small" style="margin-top:10px">“Who are you?” → ${p.phase7.who.slice(0, 2).map(quote).join(" · ")}</p>`;
+    }
+    if (p.phase6){
+      const q = p.phase6;
+      $("#synonyms").innerHTML = `<div class="tabwrap"><table><tr><th>Hears</th><th style="text-align:right">With</th><th style="text-align:right">Made-up word</th><th style="text-align:right">Without</th><th>Verdict</th></tr>` +
+        q.synonyms.map(r => `<tr><td><span class="txt">${quote(r.instruction)}</span><span class="note">teacher says ${quote(r.original)} · new: ${esc(r.new_words.join(", "))}</span></td><td class="n"><span class="bar" style="width:${Math.round(r.with_cue * 40)}px"></span>${pct(r.with_cue)}</td><td class="n">${pct(r.control ?? 0)}</td><td class="n">${pct(r.without_cue)}</td><td class="${VERDICT_CLASS[r.verdict] || ""}">${esc(r.verdict)}</td></tr>`).join("") + `</table></div>`;
+      $("#readstats").innerHTML = q.reading
+        ? `<div class="big">${q.reading.ppl}</div><p class="small">perplexity on stories it never read – roughly how many words it is unsure between. Knowing only word frequencies: ${q.reading.unigram}. Lower is better.</p>`
+          + `<p class="small" style="margin-top:10px">${fmt(z.words_read || 0)} words read so far.</p>`
+        : `<p class="small">${z.is_reading ? "No book given (--book) – reading tests are off." : "Not reading yet. See the README: pre-reading with python -m neuro.reading."}</p>`;
+      $("#story").innerHTML = q.story ? `<div class="example"><span class="txt">${quote(q.story)}</span><br><span class="note">Prompt: “once upon a time there was a little” – the rest is NikolAI’s.</span></div>` : "–";
+    }
+    const s = p.phase3;
+    $("#describing").innerHTML = `<div class="big">${Math.round(s.correct * 100)} %</div><p class="small">of ${s.sentences} sentences correct, word for word.</p>` +
+      s.examples.slice(0, 4).map(b => `<div class="example"><span class="txt">${quote(b.said)}</span><br><span class="note">Teacher: ${quote(b.expected)}</span></div>`).join("");
+  }
+  chart(z.curves);
+  const log = $("#log"), atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
+  log.innerHTML = z.log.map(logrow).join("");
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  if (z.public_view){
+    $("#talk").innerHTML = `<h3>Read-only</h3><p class="small">This is the public view. Talking to NikolAI is only possible on the private dashboard.</p>`;
+  } else if (!$("#suggestions").dataset.done){
+    $("#suggestions").innerHTML = z.instructions.map(a => `<button>${esc(a)}</button>`).join("");
+    document.querySelectorAll("#suggestions button").forEach(b => b.onclick = () => say(b.textContent));
+    $("#suggestions").dataset.done = 1;
+  }
+}
+
+async function refresh(){
+  try { render(await (await fetch("state")).json()); }
+  catch(e){ $("#livedot").classList.add("off"); }
+}
+async function say(text){
+  const c = $("#chat");
+  c.insertAdjacentHTML("beforeend", `<div class="me">${esc(text)}</div>`);
+  try {
+    const r = await (await fetch("say", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})})).json();
+    const a = r.instruction ? `<span class="small">(instruction – watch the world)</span>` : r.answer ? esc(r.answer) : `<span class="small">(silence)</span>`;
+    c.insertAdjacentHTML("beforeend", `<div class="bot">${a}${r.true_answer ? `<span class="small truth">true answer: “${esc(r.true_answer)}”</span>` : ""}</div>`);
+  } catch (e) { c.insertAdjacentHTML("beforeend", `<div class="bot small">(not reachable)</div>`); }
+  while (c.children.length > 12) c.firstElementChild.remove();
+  refresh();
+}
+$("#form").onsubmit = e => { e.preventDefault(); const t = $("#text").value.trim(); if (t){ say(t); $("#text").value = ""; } };
+
+// Reveal
+const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } }), {threshold: .12});
+document.querySelectorAll(".r").forEach((el, i) => { el.style.transitionDelay = (i % 4) * 90 + "ms"; io.observe(el); });
+
+// Neural network canvas (as on cognitronics.ai)
+const c = document.getElementById("net"), x = c.getContext("2d");
+let W, H, P = [], m = {x: -999, y: -999};
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function size(){
+  W = c.width = c.offsetWidth * devicePixelRatio; H = c.height = c.offsetHeight * devicePixelRatio;
+  const n = Math.min(110, Math.floor(c.offsetWidth * c.offsetHeight / 11000));
+  P = Array.from({length: n}, () => ({x: Math.random() * W, y: Math.random() * H, vx: (Math.random() - .5) * .25 * devicePixelRatio,
+    vy: (Math.random() - .5) * .25 * devicePixelRatio, r: (Math.random() * 1.6 + .6) * devicePixelRatio, h: Math.random() < .08}));
+}
+addEventListener("resize", size); size();
+c.parentElement.addEventListener("mousemove", e => { const b = c.getBoundingClientRect(); m.x = (e.clientX - b.left) * devicePixelRatio; m.y = (e.clientY - b.top) * devicePixelRatio; });
+c.parentElement.addEventListener("mouseleave", () => m.x = m.y = -999);
+const D = 150 * devicePixelRatio;
+(function loop(){
+  x.clearRect(0, 0, W, H);
+  if (!still) for (const p of P){ p.x += p.vx; p.y += p.vy; if (p.x < 0 || p.x > W) p.vx *= -1; if (p.y < 0 || p.y > H) p.vy *= -1; }
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++){
+    const a = P[i], b = P[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < D){ x.strokeStyle = `rgba(170,195,240,${(1 - d / D) * .18})`; x.lineWidth = devicePixelRatio * .7; x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke(); }
+  }
+  for (const p of P){
+    const dm = Math.hypot(p.x - m.x, p.y - m.y), near = dm < D * 1.3;
+    if (near){ x.strokeStyle = `rgba(77,139,255,${(1 - dm / (D * 1.3)) * .5})`; x.beginPath(); x.moveTo(p.x, p.y); x.lineTo(m.x, m.y); x.stroke(); }
+    x.fillStyle = p.h || near ? "#4d8bff" : "rgba(200,215,240,.55)";
+    x.beginPath(); x.arc(p.x, p.y, p.r * (p.h ? 1.8 : 1), 0, Math.PI * 2); x.fill();
+  }
+  if (!still) requestAnimationFrame(loop);
+})();
+
+picker(); refresh(); setInterval(refresh, 2000);
+</script>
+</body>
+</html>
