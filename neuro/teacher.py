@@ -52,8 +52,8 @@ WORD_TO_THING = {"apple": "apple", "branch": "branch", "bast": "bast", "stone": 
 DIRECTIONS = ("north", "south", "east", "west")
 PLACE_AT = {"hut": "in the hut", "orchard": "in the orchard", "forest": "in the forest", "river": "at the river",
            "workshop": "in the workshop"}
-QUESTIONS = {"how": "How are you?", "where_is": "Where are you?", "have": "What do you have?", "wants": "What do you want?",
-          "act": "What did you do?", "who": "Who are you?"}
+QUESTIONS = {"how_q": "How are you?", "where_q": "Where are you?", "have_q": "What do you have?", "want_q": "What do you want?",
+          "act": "What did you do?", "who_q": "Who are you?"}
 QUESTION_RATE = 0.10         # chance per step to ask something when no instruction is running
 PLACE_WORD = {"hut": "hut", "orchard": "orchard", "forest": "forest", "river": "river", "workshop": "workshop"}
 HINT_PAUSE = 20           # steps between two hints / modelled questions
@@ -69,14 +69,14 @@ INSTRUCTIONS.update({("say", f"i want {A[d]}"): f"Say “I want {A[d]}”!" for 
 APPLE_PAUSE = 150         # steps between two apples from the teacher (rare: begging alone must not feed it)
 GIVE_PAUSE = 8
 NEVER_TRAINED = {("put", "apple"), ("take", "bast")}      # test only – NikolAI knows the words from other sentences
-TIME_LIMIT = 30                                              # steps NikolAI has to follow an instruction
+DEADLINE = 30                                              # steps NikolAI has to follow an instruction
 
 
 def words(sentence):
     return re.findall(r"[a-z]+", (sentence or "").lower())
 
 
-def modelled_words(sentence):
+def prompted_words(sentence):
     """What the teacher asks NikolAI to repeat ("Say: I want an apple." / "Say “stone”!") – or None."""
     m = re.search(r"Say:? “?([^“”!.]+)", sentence or "")
     return words(m.group(1)) if m else None
@@ -90,7 +90,7 @@ def describe(ev, world):
     if v == "go":
         if o not in DIRECTIONS:
             return "You can walk north, south, east or west."
-        return f"You go {PLACE_TO[ev['goal']]}." if ok else "There is no path that way."
+        return f"You go {PLACE_TO[ev['target']]}." if ok else "There is no path that way."
     if o in DIRECTIONS:
         return "That doesn't work."
     if v == "take":
@@ -117,14 +117,14 @@ def describe(ev, world):
 def answer(qtype, world, ev=None, name="nikolai"):
     """The true answer to a question about itself, right now, in first person."""
     r = world.backpack
-    if qtype == "how":
+    if qtype == "how_q":
         return "i am hungry" if world.hunger > 0.6 else "i am full" if world.hunger < 0.25 else "i am fine"
-    if qtype == "where_is":
+    if qtype == "where_q":
         return f"i am {PLACE_AT[world.place]}"
-    if qtype == "have":
+    if qtype == "have_q":
         things = [A[d] for d in ("apple", "branch", "bast", "stone", "stone_axe") if r[d] > 0]
         return "i have " + " and ".join(things[:2]) if things else "i have nothing"
-    if qtype == "wants":
+    if qtype == "want_q":
         if world.hunger > 0.5 and r["apple"] == 0:
             return "i want an apple"
         missing = [d for d in ("branch", "stone", "bast") if r[d] == 0]
@@ -135,7 +135,7 @@ def answer(qtype, world, ev=None, name="nikolai"):
         if not ev or not ev["ok"] or ev["verb"] in ("wait", "say"):
             return "i did nothing"
         v, o = ev["verb"], ev["obj"]
-        return {"go": lambda: f"i went {PLACE_TO.get(ev.get('goal'), '')}", "take": lambda: f"i took {A[o]}",
+        return {"go": lambda: f"i went {PLACE_TO.get(ev.get('target'), '')}", "take": lambda: f"i took {A[o]}",
                 "eat": lambda: "i ate an apple", "put": lambda: f"i put down {THE[o]}",
                 "build": lambda: "i built a stone axe"}[v]()
     return f"i am {name}"
@@ -158,7 +158,7 @@ def action_of(ev):
     """Which instruction (verb, obj) does this successful action fulfil? Or None."""
     if not ev or not ev["ok"]:
         return None
-    a = ("go", ev["goal"]) if ev["verb"] == "go" and "goal" in ev else (ev["verb"], ev["obj"])
+    a = ("go", ev["target"]) if ev["verb"] == "go" and "target" in ev else (ev["verb"], ev["obj"])
     return a if a in INSTRUCTIONS else None
 
 
@@ -173,8 +173,8 @@ def hindsight(ev):
     return out
 
 
-def fulfilled(instruction, ev):
-    v, o = instruction
+def fulfilled(task, ev):
+    v, o = task
     if v == "say":
         return bool(ev.get("words")) and all(x in ev["words"] for x in o.split())
     if v == "go":
@@ -200,33 +200,33 @@ class Teacher:
         self.instructions_on = instructions
         self.trained_only = trained_only
         self.rate = describe_rate
-        self.instruction = None
+        self.task = None
         self.since = 0
         self.pause = 0
         self.successes = 0
         self.trials = 0
         self.since_give = 99
         self.since_apple = 99
-        self.requests = {"understood_n": 0, "first_person_n": 0, "given": 0, "where_is": 0}
+        self.requests = {"recognized": 0, "first_person": 0, "given": 0, "where_q": 0}
         self.since_hint = 99
         self.question = None                                    # the question just asked (NikolAI answers next step)
         self.habits = {}                                    # what NikolAI does on its own (no instruction)
         self._b0 = 0
         self._w0 = 0
 
-    def new_instruction(self, world, instruction=None):
-        if instruction is None:
+    def new_task(self, world, task=None):
+        if task is None:
             possible = [a for a in INSTRUCTIONS if not (self.trained_only and a in NEVER_TRAINED)]
             possible = [a for a in possible if not (a[0] == "go" and a[1] == world.place)]
             possible = [a for a in possible if a[0] != "put" or world.backpack[a[1]] > 0] or possible
             if world.hunger > 0.5:                            # it would fetch and eat apples anyway
-                possible = [a for a in possible if a[0] == "say" or a[1] != "apple"] or possible   # ("say", "apple") is a word, not the thing
+                possible = [a for a in possible if a[1] != "apple"] or possible
             weights = [1.0 / (1.0 + self.habits.get(a, 0)) for a in possible]
-            instruction = self.z.choices(possible, weights)[0]
+            task = self.z.choices(possible, weights)[0]
             self.habits = {k: v / 2 for k, v in self.habits.items()}
-        self.instruction, self.since = instruction, 0
+        self.task, self.since = task, 0
         self.trials += 1
-        return INSTRUCTIONS[instruction]
+        return INSTRUCTIONS[task]
 
     # ------------------------------------------------------------ listening
     def needs(self, world, thing):
@@ -238,17 +238,17 @@ class Teacher:
             return False
         if r[thing] > 0:
             return False
-        if self.instruction in (("take", thing), ("put", thing)):
+        if self.task in (("take", thing), ("put", thing)):
             return True
-        if self.instruction != ("build", "stone_axe"):         # only for a real purpose
+        if self.task != ("build", "stone_axe"):         # only for a real purpose
             return False
-        other = [d for d in ("branch", "stone", "bast") if d != thing]
-        return all(r[d] > 0 for d in other)              # the only thing still missing for a stone axe
+        others = [d for d in ("branch", "stone", "bast") if d != thing]
+        return all(r[d] > 0 for d in others)              # the only thing still missing for a stone axe
 
-    def listen_to_agent(self, world, words):
+    def listen_to_creature(self, world, words):
         """NikolAI said something. Returns (answer, reward)."""
         if "where" in words:                               # a question, not a request
-            self.requests["where_is"] += 1
+            self.requests["where_q"] += 1
             self.since_hint = 0
             if world.windfall:
                 return where_sentence(world.windfall), 0.0
@@ -257,7 +257,7 @@ class Teacher:
         if not x:
             return ("Hm?" if words and self.z.random() < 0.3 else ""), 0.0
         first_person = "i" in words and "want" in words
-        self.requests["understood_n"] += 1
+        self.requests["recognized"] += 1
         if x == "stone_axe" and world.backpack["stone_axe"] == 0:
             return "You have to build a stone axe yourself: from a branch, a stone and some bast.", 0.0
         if self.since_give < GIVE_PAUSE or not self.needs(world, x):
@@ -270,7 +270,7 @@ class Teacher:
             self.since_apple = 0
         self.requests["given"] += 1
         if first_person:                                            # no reward for receiving – only what it achieves counts
-            self.requests["first_person_n"] += 1
+            self.requests["first_person"] += 1
             return f"Nicely said! Here is {A[x]}.", 0.0
         return f"You want {A[x]}? Here is {A[x]}. Say: I want {A[x]}.", 0.0
 
@@ -282,14 +282,14 @@ class Teacher:
         self.since_apple += 1
         self.since_hint += 1
         if ev and ev.get("words"):
-            answer, reward = self.listen_to_agent(world, ev["words"])
+            answer, reward = self.listen_to_creature(world, ev["words"])
             if answer:
                 parts.append(answer)
-        if ev and ev["verb"] == "go" and ev["ok"] and ev.get("goal") == world.windfall and not self.instruction \
+        if ev and ev["verb"] == "go" and ev["ok"] and ev.get("target") == world.windfall and not self.task \
                 and world.backpack["apple"] < 2:
             parts.append("Look, there is an apple here.")       # scaffolding: points at what it can't connect yet
-            parts.append(self.new_instruction(world, ("take", "apple")))
-        if not self.instruction:
+            parts.append(self.new_task(world, ("take", "apple")))
+        if not self.task:
             a = action_of(ev)
             if a:
                 self.habits[a] = self.habits.get(a, 0) + 1
@@ -305,34 +305,34 @@ class Teacher:
         if world.windfall and world.hunger > 0.35 and world.backpack["apple"] == 0 and self.since_hint >= HINT_PAUSE \
                 and world.place != world.windfall:
             self.since_hint = 0
-            direct_p = 0.2 if self.friend else 0.5             # with a friend around, the friend should tell
-            parts.append(where_sentence(world.windfall) if self.z.random() < direct_p else "Hungry? Say: where is an apple?")
+            direct = 0.2 if self.friend else 0.5             # with a friend around, the friend should tell
+            parts.append(where_sentence(world.windfall) if self.z.random() < direct else "Hungry? Say: where is an apple?")
         descr = describe(ev, world) if ev else None
-        name = STATION_NAME.get(ev["goal"]) if ev and ev["verb"] == "go" and ev["ok"] and self.z.random() < 0.3 else None
+        name = STATION_NAME.get(ev["target"]) if ev and ev["verb"] == "go" and ev["ok"] and self.z.random() < 0.3 else None
         if descr and self.z.random() < self.rate:
             parts.append(descr)
         else:
             descr = None
         if name:
             parts.append(name)
-        if self.instruction:
+        if self.task:
             self.since += 1
-            if ev and fulfilled(self.instruction, ev):
+            if ev and fulfilled(self.task, ev):
                 parts.append("Well done!")
                 reward, done = reward + 1.0, True
                 self.successes += 1
-                self.instruction, self.pause = None, self.z.randint(5, 25)
-            elif self.since >= TIME_LIMIT:
-                self.instruction, self.pause = None, self.z.randint(5, 25)
+                self.task, self.pause = None, self.z.randint(5, 25)
+            elif self.since >= DEADLINE:
+                self.task, self.pause = None, self.z.randint(5, 25)
             elif self.since % 10 == 0:
-                parts.append(INSTRUCTIONS[self.instruction])            # say it again
+                parts.append(INSTRUCTIONS[self.task])            # say it again
         elif self.instructions_on:
             self.pause -= 1
             if self.pause <= 0:
-                parts.append(self.new_instruction(world))
+                parts.append(self.new_task(world))
             elif self.z.random() < QUESTION_RATE:            # a little conversation
                 # (they share one brain – it cannot tell which body it is, so only NikolAI is asked its name)
-                self.question = self.z.choice([f for f in QUESTIONS if f != "who" or self.name == "nikolai"])
+                self.question = self.z.choice([f for f in QUESTIONS if f != "who_q" or self.name == "nikolai"])
                 parts.append(QUESTIONS[self.question])
         return " ".join(parts), reward, descr, done
 
@@ -361,7 +361,7 @@ def _norm(t):
     return " ".join(words(t))
 
 
-def instruction_from_text(text):
+def task_from_text(text):
     """Is this one of the teacher's instructions? Then the human becomes the teacher. Returns (verb, obj) or None."""
     t = _norm(text)
     for a, sentence in INSTRUCTIONS.items():

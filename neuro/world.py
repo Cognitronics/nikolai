@@ -1,28 +1,28 @@
-"""A small but real text world – fast enough for a neural brain to practise in.
+"""A small, real text world – fast enough for a neural brain to practise in.
 
 Five places, real things, real rules:
                  Forest (tree: branches, bast)
                     |
  Orchard ——— Hut ——— Workshop (workbench)
- (apple tree)        |
-                 River (bank: stones)
+ (apple tree)       |
+                 River (riverbank: stones)
 
-Hunger grows over time; an apple (about 80 kcal) eases it a little. From a branch, a stone and some bast you build a
-stone axe at the workbench (as people did in the Stone Age). An apple tree doesn't bear without limit: after picking,
-a new apple grows back slowly.
+Hunger grows over time; an apple (about 80 kcal) eases it a little. From a branch, a stone and bast you build a stone
+axe at the workbench (as people did in the Stone Age). An apple tree doesn't bear without end: after picking, a new
+apple grows slowly.
 
-Version 6 – hidden knowledge: the tree alone is no longer enough. Now and then a windfall apple lies somewhere
-(in the forest, at the river, in the workshop or in the hut) – each time somewhere else. The agent only sees it when
-it is there. The teacher knows where it lies: whoever listens (or asks) finds food faster.
+Version 6 – hidden knowledge: the tree alone is no longer enough. Now and then a windfall apple lies somewhere (in the
+forest, at the river, in the workshop or in the hut) – each time somewhere else. The creature only sees it when it is
+there. The teacher knows where it lies: whoever listens (or asks) finds food faster.
 
-Version 10 – a friend: two agents (NikolAI and Kogli) can share one world. Each has its own body (place, hunger,
-backpack); the ground, the apple tree and the windfall apple belong to both. What one puts down, the other can take;
-whoever finds the windfall apple first gets it.
+Version 10 – a friend: two creatures (NikolAI and Kogli) can share a world. Each has its own body (place, hunger,
+backpack); ground, apple tree and windfall belong to both. What one puts down, the other can take; whoever finds the
+windfall apple first gets it.
 
-Version 11 – rest days: on some days the apple tree bears nothing at all (as in a bad year). Then there are only
-windfall apples – and whoever listens, asks, or tells the friend gets full. Practice only; the tests run without.
+Version 11 – rest days: on some days the apple tree bears nothing at all (like a bad year). Then there are only
+windfall apples – and whoever listens, asks or tells the friend gets full. Only for practice; the tests run without.
 
-The agent perceives the world through its senses (a vector of numbers: where am I, what do I see, what do I carry,
+The creature perceives the world through its senses (a vector of numbers: where am I, what do I see, what do I carry,
 how hungry am I, did my last action work?). At first it doesn't know what these numbers mean.
 """
 
@@ -37,11 +37,11 @@ THINGS = ["apple", "branch", "bast", "stone", "stone_axe"]
 SOURCES = {"orchard": ["apple"], "forest": ["branch", "bast"], "river": ["stone"]}       # what can be fetched there
 STATIONS = {"orchard": "apple_tree", "forest": "tree", "river": "riverbank", "workshop": "workbench", "hut": "bed"}
 RECIPE = {"stone_axe": {"branch": 1, "stone": 1, "bast": 1}}                             # at the workbench
-VERBS = ["go", "take", "eat", "put", "build", "wait", "say"]     # "say": saying words instead of acting
+VERBS = ["go", "take", "eat", "put", "build", "wait", "say"]     # "say": say words instead of acting
 OBJECTS = DIRECTIONS + THINGS
 HUNGER_PER_STEP = 1 / 120
 APPLE_FILLS = 0.4
-APPLE_REGROWS = 45         # steps until an apple hangs on the tree again (the tree alone is barely enough – more apples only elsewhere)
+APPLE_REGROWS = 45         # steps until an apple hangs on the tree again (the tree alone is barely enough)
 WINDFALL_PLACES = ["forest", "river", "workshop", "hut"]
 WINDFALL_REGROWS = 25      # steps until an apple lies somewhere else again
 REST_DAY = 0.4              # how often the tree bears nothing for a whole day (practice only)
@@ -51,7 +51,7 @@ SENSES = len(PLACES) + len(PLACES) + len(THINGS) + len(THINGS) + 2 + 3     # pla
 
 
 class Environment:
-    """What doesn't belong to a body: ground, apple tree, windfall apple. Two agents can share one."""
+    """What doesn't belong to a body: ground, apple tree, windfall. Two creatures can share one."""
 
     def __init__(self, z):
         self.ground = {o: {d: 0 for d in THINGS} for o in PLACES}
@@ -65,8 +65,8 @@ def _env_field(name):
 
 
 class World:
-    """A world with one agent (or one body in a shared world, see share_with).
-    step() takes (verb, object) as numbers and returns the result."""
+    """A world with one creature (or one body in a shared world, see share_with).
+    step() gets (verb, object) as numbers and returns what happened."""
 
     ground = _env_field("ground")
     apple_ready = _env_field("apple_ready")
@@ -76,22 +76,22 @@ class World:
     def __init__(self, rng=None, rest_days=False):
         self.z = rng or random.Random()
         self.rest_days = rest_days
-        self.reset()
+        self.fresh()
 
     def share_with(self, other):
-        """From now on this body lives in the world of `other` (time there is driven by `other`)."""
+        """From now on this body lives in the world of `other` (time there runs through `other`)."""
         self.u = other.u
         self.ticks = False
 
-    def reset(self):
+    def fresh(self):
         self.u = Environment(self.z)
         if self.rest_days and self.z.random() < REST_DAY:
             self.u.apple_ready = 10 ** 9      # no apple on the tree today
-        self.ticks = True              # only one body drives the shared time (tree, windfall)
+        self.ticks = True              # only one body makes shared time run (tree, windfall)
         self.place = "hut"
         self.backpack = {d: 0 for d in THINGS}
         self.hunger = self.z.uniform(0.1, 0.5)
-        self.outcome = "nothing"       # ok / failed / nothing
+        self.outcome = "nothing"       # ok / failure / nothing
         self.steps = 0
         self.eaten = 0
         self.built = 0
@@ -113,10 +113,10 @@ class World:
         v[i] = self.hunger
         v[i + 1] = 1.0 if self.place == "orchard" and self.apple_ready == 0 else 0.0   # sees an apple hanging
         i += 2
-        v[i + ["ok", "failed", "nothing"].index(self.outcome)] = 1
+        v[i + ["ok", "failure", "nothing"].index(self.outcome)] = 1
         return v
 
-    def place_windfall(self, place):
+    def drop_windfall(self, place):
         """An apple falls (blown by the wind, dropped by a bird) – this is where it lies now."""
         if self.windfall:
             self.ground[self.windfall]["apple"] = max(0, self.ground[self.windfall]["apple"] - 1)
@@ -124,7 +124,7 @@ class World:
         self.ground[place]["apple"] += 1
 
     def give(self, thing):
-        """Someone gives the agent something (the teacher)."""
+        """Someone gives the creature something (the teacher)."""
         if self.backpack[thing] < MAX_CARRY:
             self.backpack[thing] += 1
             return True
@@ -142,13 +142,13 @@ class World:
         if self.ticks and self.windfall is None:
             self.windfall_timer -= 1
             if self.windfall_timer <= 0:
-                self.place_windfall(self.z.choice([o for o in WINDFALL_PLACES if o != self.place]))
+                self.drop_windfall(self.z.choice([o for o in WINDFALL_PLACES if o != self.place]))
         ev = {"verb": verb, "obj": obj, "ok": False, "place": self.place}
         if verb == "go" and obj in DIRECTIONS:
-            goal = PATHS[self.place].get(obj)
-            if goal:
-                self.place = goal
-                ev.update(ok=True, goal=goal)
+            target = PATHS[self.place].get(obj)
+            if target:
+                self.place = target
+                ev.update(ok=True, target=target)
         elif verb == "take" and obj in THINGS:
             if self.backpack[obj] < MAX_CARRY:
                 if self.ground[self.place][obj] > 0:
@@ -185,7 +185,7 @@ class World:
                 ev["ok"] = True
         elif verb in ("wait", "say"):
             ev["ok"] = True
-        self.outcome = "nothing" if verb in ("wait", "say") else ("ok" if ev["ok"] else "failed")
+        self.outcome = "nothing" if verb in ("wait", "say") else ("ok" if ev["ok"] else "failure")
         # what the body reports: hunger hurts, getting full feels good
         body = -0.02 * self.hunger ** 2 + max(0.0, hunger_before - self.hunger) * 1.5
         ev["place_after"] = self.place
