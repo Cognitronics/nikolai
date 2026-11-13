@@ -1,20 +1,11 @@
 # NikolAI
 
-> ### 🟢 Watch it learn – live: **[nikolai.cognitronics.ai](https://nikolai.cognitronics.ai)**
-> NikolAI is running right now on a small home server. The public page shows its world, what it hears and says,
-> its training curves, its word memory, how it imagines things and every test – updated in real time.
-
-[![NikolAI live dashboard](docs/dashboard-hero.png)](https://nikolai.cognitronics.ai)
-
 *A Cognitronics project.* A neural creature that learns English from scratch – in a small world of its own, with a
 teacher, a friend, and books. No sentence rules, no vocabulary list, no planner. It gets its senses (where am I, what
 do I see, what do I carry, how hungry am I), hears what is said, reads, and learns. Everything it says, it has
 learned by itself.
 
-[![NikolAI and Kogli living in their world, in real time](docs/dashboard-live.png)](https://nikolai.cognitronics.ai/#live)
-
-*Above: the live view – NikolAI and its friend Kogli in their world, the teacher's words and NikolAI's own answers,
-second by second.*
+**Live:** [nikolai.cognitronics.ai](https://nikolai.cognitronics.ai) (read-only view)
 
 ## What it does
 
@@ -35,6 +26,10 @@ second by second.*
 - **Imagines.** Things have real properties (colour, size, shape, surface, parts, weight, taste) that it only finds
   out by seeing, taking, carrying and eating. From a heard word it predicts what to expect – with an uncertainty.
   The dashboard draws this: sharp where it knows, fog where it doesn't (predictive coding; Rao & Ballard 1999).
+- **Combines words.** Apples, branches and stones come big or small; a big apple fills more. The teacher says "Take
+  a small stone!" or "Eat the big apple!" – but never "big stone". Does NikolAI understand it anyway, from "big"
+  heard with apples and branches and "stone" heard only as "small stone"? That is the classic test of systematic generalisation
+  (Lake & Baroni 2018; Hill et al. 2020), and small networks often fail it.
 - **Shows its word memory.** A word cloud of what it says, the words closest to any word in its head (from books and
   from its world), and an Obsidian vault of all of it.
 
@@ -43,8 +38,8 @@ second by second.*
 - It is small (~9 M parameters, most for its 8,000 words). It writes grammatical but meandering stories, and its
   answers come from a tiny world. It is a toddler with a picture-book voice, not a chatbot.
 - It practises in 32 copies of the world at once; the dashboard shows one NikolAI living in real time.
-- The senses are given (like eyes and a stomach), and so is the "paint box" of its pictures. Everything else is
-  learned.
+- The senses are given (like eyes and a stomach), and so is the "paint box" of its pictures. Its hands can choose
+  "any", "a big one" or "a small one" – which one to choose when, and what "big" means, is learned.
 - **Every claim is tested** against controls: with the sentence, without it, and acting at random; made-up words for
   words it only knows from books; guessing the most frequent answer. "Understood" means ≥ 70 % and ≥ 30 points better
   than without. A milestone counts only after three tests in a row. Failures are shown too.
@@ -62,6 +57,7 @@ second by second.*
 | 7 | Does it answer questions about itself truthfully (vs. guessing)? |
 | 8 | Does it tell its friend where food is (vs. the line cut)? |
 | 9 | Does it imagine what it knows – and stay unsure about what it never touched? |
+| 10 / 10b / 10c | Does it pick the big or the small one on request (vs. the sentence without the size) – also for combinations it never heard? Does it imagine a "big stone" bigger than a "small stone"? |
 
 ## Install (Linux)
 
@@ -120,11 +116,15 @@ older versions (with German names) load as they are.
 - **14** Word memory: word cloud, nearest words, Obsidian vault.
 - **15** Imagination: properties, expectations with uncertainty, pictures from them.
 - **16** All code in English; old brains still load.
+- **17** Sizes and combining words: big and small things, one held-out combination ("big stone"), Phase 10. First
+  test (two one-hour runs from a trained brain): it starts to pick big or small branches on request; for the
+  never-heard "big stone" its hands still take the small one (it only ever heard "small stone") – but its
+  imagination already pictures a big stone about twice as big as a small one.
 
 ## Next
 
-Drawing for Kogli from its imagination (a picture game where the two invent their own signs), properties that must be
-combined in words ("the red apple"), a bigger reading brain (a small transformer).
+Drawing for Kogli from its imagination (a picture game where the two invent their own signs), more properties to
+combine (colour, ripeness), a bigger reading brain (a small transformer).
 
 ## Support
 

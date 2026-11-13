@@ -33,12 +33,18 @@ and this one stands right where an apple lies, the teacher whispers: "Kogli is h
 forest." – the same sentence the teacher uses as a hint, which the friend already understands. Whether passing it on
 is worth it, they find out themselves: each also feels it when the other gets full (a shared reward).
 
+Version 17 – sizes: apples, branches and stones are big or small. The teacher names the size when it describes
+("You take a big apple."), and gives instructions with it ("Take a small stone!", "Eat the big apple!"). One
+combination it NEVER says: "big stone". NikolAI hears "big" and "small" with apples and branches, but "stone" only
+with "small" – whether it understands "Take a big stone!" anyway is the test of combining words (Phase 10; systematic
+generalisation, Lake & Baroni 2018, Hill et al. 2020).
+
 Everything the teacher says is correct English and true in the world. It knows nothing about the brain's insides.
 """
 
 import re
 
-from .world import RECIPE
+from .world import RECIPE, SIZES, VARIANTS
 
 PLACE_TO = {"hut": "to the hut", "orchard": "to the orchard", "forest": "to the forest", "river": "to the river",
             "workshop": "to the workshop"}
@@ -71,6 +77,39 @@ GIVE_PAUSE = 8
 NEVER_TRAINED = {("put", "apple"), ("take", "bast")}      # test only – NikolAI knows the words from other sentences
 DEADLINE = 30                                              # steps NikolAI has to follow an instruction
 
+# Version 17: instructions with a size – (verb, thing, size)
+HELD_OUT = {("big", "stone")}         # never said by the teacher – only in the test (Phase 10)
+SIZED = {}
+for _d in VARIANTS:
+    for _s in SIZES:
+        SIZED[("take", _d, _s)] = f"Take a {_s} {_d}!"
+        SIZED[("put", _d, _s)] = f"Put down the {_s} {_d}!"
+SIZED[("eat", "apple", "big")] = "Eat the big apple!"
+SIZED[("eat", "apple", "small")] = "Eat the small apple!"
+SIZED_RATE = 0.4                                           # share of instructions that name a size
+MOD_OF = {v: SIZES.index(k[2]) + 1 for k, v in SIZED.items()}  # sentence → which one the hands should choose
+
+
+def held_out(thing, size):
+    return (size, thing) in HELD_OUT
+
+
+def instruction(task):
+    return SIZED[task] if len(task) == 3 else INSTRUCTIONS[task]
+
+
+def _a(thing, size=None):
+    """'a stone' / 'a big stone' (never a held-out combination)."""
+    if size and thing in VARIANTS and not held_out(thing, size):
+        return f"a {size} {WORD[thing]}"
+    return A[thing]
+
+
+def _the(thing, size=None):
+    if size and thing in VARIANTS and not held_out(thing, size):
+        return f"the {size} {WORD[thing]}"
+    return THE[thing]
+
 
 def words(sentence):
     return re.findall(r"[a-z]+", (sentence or "").lower())
@@ -95,14 +134,16 @@ def describe(ev, world):
         return "That doesn't work."
     if v == "take":
         if ok:
-            return f"You take {A[o]}."
+            return f"You take {_a(o, ev.get('size'))}."
         return f"There is {NO[o]} here." if world.backpack[o] < 3 else "You can't carry any more."
     if v == "eat":
         if o != "apple":
             return "You can't eat that."
+        if ok and ev.get("size"):
+            return f"You eat {_a('apple', ev['size'])}. Yummy!"
         return "You eat an apple. Yummy!" if ok else "You have no apple."
     if v == "put":
-        return f"You put down {THE[o]}." if ok else f"You have {NO[o]}."
+        return f"You put down {_the(o, ev.get('size'))}." if ok else f"You have {NO[o]}."
     if v == "build":
         if o not in RECIPE:
             return "That can't be built."
@@ -168,13 +209,29 @@ def hindsight(ev):
     a = action_of(ev)
     if a and a not in NEVER_TRAINED:
         out.append(INSTRUCTIONS[a])
+        sized = (a[0], a[1], ev.get("size"))
+        if sized in SIZED and not held_out(a[1], ev["size"]):
+            out.append(SIZED[sized])
     if ev and ev.get("windfall"):
         out.append(where_sentence(ev["place"]))
     return out
 
 
+def size_lesson(ev, world):
+    """Version 17: if NikolAI just took, put down or ate one of two sizes (both were there to choose from), the
+    instruction that would have asked for exactly this one ("Take a big apple!") – else None. Never held-out ones."""
+    if not ev or not ev["ok"] or not ev.get("size") or not ev.get("choice"):
+        return None
+    task = (ev["verb"], ev["obj"], ev["size"])
+    if task not in SIZED or held_out(ev["obj"], ev["size"]) or (ev["verb"], ev["obj"]) in NEVER_TRAINED:
+        return None
+    return SIZED[task]
+
+
 def fulfilled(task, ev):
-    v, o = task
+    v, o = task[:2]
+    if len(task) == 3:
+        return ev["verb"] == v and ev["obj"] == o and ev["ok"] and ev.get("size") == task[2]
     if v == "say":
         return bool(ev.get("words")) and all(x in ev["words"] for x in o.split())
     if v == "go":
@@ -224,9 +281,16 @@ class Teacher:
             weights = [1.0 / (1.0 + self.habits.get(a, 0)) for a in possible]
             task = self.z.choices(possible, weights)[0]
             self.habits = {k: v / 2 for k, v in self.habits.items()}
+            if task[0] in ("take", "put", "eat") and task[1] in VARIANTS and self.z.random() < SIZED_RATE:
+                sizes = [x for x in SIZES if not (self.trained_only and held_out(task[1], x))]
+                if task[0] != "take":                        # only what it really carries
+                    big = world.backpack_big[task[1]]
+                    sizes = [x for x in sizes if (big if x == "big" else world.backpack[task[1]] - big) > 0]
+                if sizes and (task[0], task[1], sizes[0]) in SIZED:
+                    task = (task[0], task[1], self.z.choice(sizes))
         self.task, self.since = task, 0
         self.trials += 1
-        return INSTRUCTIONS[task]
+        return instruction(task)
 
     # ------------------------------------------------------------ listening
     def needs(self, world, thing):
@@ -238,7 +302,7 @@ class Teacher:
             return False
         if r[thing] > 0:
             return False
-        if self.task in (("take", thing), ("put", thing)):
+        if self.task and self.task[:2] in (("take", thing), ("put", thing)):
             return True
         if self.task != ("build", "stone_axe"):         # only for a real purpose
             return False
@@ -325,7 +389,7 @@ class Teacher:
             elif self.since >= DEADLINE:
                 self.task, self.pause = None, self.z.randint(5, 25)
             elif self.since % 10 == 0:
-                parts.append(INSTRUCTIONS[self.task])            # say it again
+                parts.append(instruction(self.task))            # say it again
         elif self.instructions_on:
             self.pause -= 1
             if self.pause <= 0:
@@ -354,6 +418,8 @@ def all_sentences():
                 f"You already have {A[d]}.", f"{WORD[d].capitalize()}? Not now.", f"Here is {A[d]}.",
                 f"You want {A[d]}? Here is {A[d]}. Say: I want {A[d]}."]
     out += [f"You go {z}." for z in PLACE_TO.values()]
+    out += list(SIZED.values()) + [f"You take a {x} {d}." for d in VARIANTS for x in SIZES] \
+        + [f"You put down the {x} {d}." for d in VARIANTS for x in SIZES] + ["You eat a big apple. Yummy!"]
     return out
 
 
@@ -364,7 +430,7 @@ def _norm(t):
 def task_from_text(text):
     """Is this one of the teacher's instructions? Then the human becomes the teacher. Returns (verb, obj) or None."""
     t = _norm(text)
-    for a, sentence in INSTRUCTIONS.items():
+    for a, sentence in list(INSTRUCTIONS.items()) + list(SIZED.items()):
         if t == _norm(sentence):
             return a
     return None

@@ -296,6 +296,11 @@
       <h3>Understanding instructions</h3>
       <p class="small">Success within 15 steps, 30 trials each — with the sentence, without it (same situation), and acting at random. Marked rows: never trained, only tested.</p>
       <div id="tbl" class="small" style="margin-top:14px">First test is running …</div>
+      <h3 style="margin-top:44px">Combining words: big and small</h3>
+      <p class="small">A big and a small one lie on the floor (or it carries both), with other things around, 10 steps, 30 trials. Each thing is asked for both ways – “big …” and “small …” – from the same starts. When it takes (or puts down) that thing: how often the right size? If it ignores the size word, it gets one of the two right at most. “Understood”: both at least 70 %. “Noun only” = which size it takes for “Take a stone!”. Marked rows: the teacher never says “big stone” – NikolAI heard “big” and “small” with apples and branches, but “stone” only as “small stone”.</p>
+      <div id="sizes" class="small" style="margin-top:14px">–</div>
+      <p class="small" style="margin-top:18px">Imagined size from the words alone (0 = tiny, 1 = huge):</p>
+      <div id="sizeimag" class="small" style="margin-top:8px">–</div>
     </div>
     <div>
       <h3>Asking for things</h3>
@@ -429,6 +434,16 @@ function draw(z){
       $("#whereq").innerHTML = `<div class="tabwrap"><table><tr><th>Hears</th><th style="text-align:right">With</th><th style="text-align:right">Without</th><th style="text-align:right">Random</th><th>Verdict</th></tr>` +
         p.phase5.where_q.map(r => `<tr><td>${quote(r.sentence)}</td><td class="n"><span class="bar" style="width:${Math.round(r.with * 40)}px"></span>${pct(r.with)}</td><td class="n">${pct(r.without)}</td><td class="n">${pct(r.random)}</td><td class="${UK[r.verdict] || ""}">${esc(r.verdict)}</td></tr>`).join("") +
         `</table></div><p class="small" style="margin-top:10px">Asks “where …?” on its own within 10 steps: hungry ${pct(f.hungry)} · full ${pct(f.full)} · random ${pct(f.random)}.</p>`;
+    }
+    if (p.phase10){
+      const q = p.phase10;
+      const sz = v => v == null ? "–" : pct(v);
+      $("#sizes").innerHTML = `<div class="tabwrap"><table><tr><th>Instruction</th><th style="text-align:right">“big …”</th><th style="text-align:right">“small …”</th><th style="text-align:right">Noun only</th><th>Verdict</th></tr>` +
+        q.pairs.map(r => `<tr class="${r.held_out ? "nie" : ""}"><td><span class="de">${quote(r.plain.replace(/(an? |the )/, "$1big/small ").replace("an big", "a big"))}</span>${r.held_out ? `<span class="en">“big ${esc(r.thing)}” never heard — test only</span>` : ""}</td><td class="n"><span class="bar" style="width:${Math.round((r.big ?? 0) * 40)}px"></span>${sz(r.big)}</td><td class="n"><span class="bar" style="width:${Math.round((r.small ?? 0) * 40)}px"></span>${sz(r.small)}</td><td class="n">${r.noun_only_big == null ? "–" : pct(r.noun_only_big) + " big"}</td><td class="${UK[r.verdict] || ""}">${esc(r.verdict)}</td></tr>`).join("") + `</table></div>`;
+      if (q.imagined){
+        $("#sizeimag").innerHTML = `<div class="tabwrap"><table><tr><th>Thing</th><th style="text-align:right">“big …”</th><th style="text-align:right">“small …”</th><th style="text-align:right">Really</th><th>Verdict</th></tr>` +
+          q.imagined.map(r => `<tr class="${r.held_out.length ? "nie" : ""}"><td>${esc(r.thing)}${r.held_out.length ? `<span class="en">“${esc(r.held_out[0])} ${esc(r.thing)}” never heard</span>` : ""}</td><td class="n">${r.big.toFixed(2)}</td><td class="n">${r.small.toFixed(2)}</td><td class="n">${r.true_big.toFixed(2)} / ${r.true_small.toFixed(2)}</td><td class="${UK[r.verdict] || ""}">${esc(r.verdict)}</td></tr>`).join("") + `</table></div>`;
+      }
     }
     if (p.phase9){
       const q = p.phase9;

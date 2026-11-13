@@ -34,7 +34,7 @@ import torch.nn.functional as F
 from . import teacher as L
 from . import reading
 from . import imagination as V
-from .brain import END, PAD, SPEECH_MAX, Brain, Vocabulary
+from .brain import END, PAD, SPEECH_MAX, Brain, Vocabulary, relevant
 from .world import VERBS, World
 
 SAY = VERBS.index("say")
@@ -55,6 +55,7 @@ IMAGINATION_STEPS = 8        # learning steps of the imagination per section
 TEAM = 0.5                      # how much it shares in it when the friend gets full
 LANGUAGE_PARTS = ("word.", "hearing.", "read_out.", "hear_proj.", "speech.", "speech_out.", "speech_start.",
                   "speak_cell.", "speak_out.")
+SIZE_WEIGHT = 0.5               # version 17: lessons for the hands (which one)
 SPEECH_COST = 0.04              # talking costs a little effort – otherwise it chatters nonstop
 
 
@@ -118,22 +119,29 @@ class Practice:
         g = self.brain
         verb, od, vd = g.decide(h)
         obj = od.sample()
+        md = g.choose(h, verb)
+        mod = md.sample()
+        rel = relevant(verb, obj)
+        mod = torch.where(rel, mod, torch.zeros_like(mod))       # "which one" only where it matters
         sd = g.switch(h)
         talks = sd.sample().bool()
         words, speak_lp, _ = g.speak(h, known)
-        logp = vd.log_prob(verb) + od.log_prob(obj) + sd.log_prob(talks.float()) + torch.where(
-            talks, speak_lp, torch.zeros_like(speak_lp))
-        return verb, obj, talks, words, logp
+        logp = vd.log_prob(verb) + od.log_prob(obj) + md.log_prob(mod) * rel + sd.log_prob(talks.float()) + \
+            torch.where(talks, speak_lp, torch.zeros_like(speak_lp))
+        return verb, obj, mod, talks, words, logp
 
     def _reevaluate(self, h, s):
         g = self.brain
         _, od, vd = g.decide(h, s["verb"])
+        md = g.choose(h, s["verb"])
+        rel = relevant(s["verb"], s["obj"])
         sd = g.switch(h)
         _, speak_lp, speak_ent = g.speak(h, s["known"], s["words"])
         talks = s["talks"]
-        logp = vd.log_prob(s["verb"]) + od.log_prob(s["obj"]) + sd.log_prob(talks.float()) + torch.where(
-            talks, speak_lp, torch.zeros_like(speak_lp))
-        ent = vd.entropy() + od.entropy() + sd.entropy() + 0.3 * torch.where(talks, speak_ent, torch.zeros_like(speak_ent))
+        logp = vd.log_prob(s["verb"]) + od.log_prob(s["obj"]) + md.log_prob(s["mod"]) * rel + \
+            sd.log_prob(talks.float()) + torch.where(talks, speak_lp, torch.zeros_like(speak_lp))
+        ent = vd.entropy() + od.entropy() + 0.3 * md.entropy() * rel + sd.entropy() + \
+            0.3 * torch.where(talks, speak_ent, torch.zeros_like(speak_ent))
         return logp, ent
 
     def _pair(self):
@@ -157,14 +165,14 @@ class Practice:
                 sentences = sentence_tensor(self.heard)
                 h = g.think(self.senses, sentences, self.last_act, h)
                 known = len(self.ws.vocab_list)
-                verb, obj, talks, speak_words, logp_alt = self.act_once(h, known)
+                verb, obj, mod, talks, speak_words, logp_alt = self.act_once(h, known)
                 value = g.value(h).squeeze(1)
                 act = g.act_index(verb, obj)
                 expected = g.expectation(h, act)
-                reward, newly_heard, descr, rep, hs, oks, ans = [], [], [], [], [], [], []
+                reward, newly_heard, descr, rep, hs, oks, ans, lesson = [], [], [], [], [], [], [], []
                 body, evs = [], []
                 for i, w in enumerate(self.worlds):          # first everyone acts …
-                    k, ev = w.step(int(verb[i]), int(obj[i]))
+                    k, ev = w.step(int(verb[i]), int(obj[i]), int(mod[i]))
                     if talks[i]:
                         ev["words"] = words_from(self.ws, speak_words[i])
                         self.stats["said"] += 1
@@ -180,6 +188,7 @@ class Practice:
                     oks.append(bool(ev["ok"]) and ev["verb"] != "wait")
                     self._perceive(w, ev)
                     relabel = L.hindsight(ev)
+                    lesson.append(L.size_lesson(ev, w))
                     hs.append(self.z.choice(relabel) if relabel else None)
                     team = TEAM * max(0.0, body[j]) if j is not None else 0.0     # shares the joy, not the pain
                     reward.append(k + team + l_reward - (SPEECH_COST if talks[i] else 0.0))
@@ -200,9 +209,9 @@ class Practice:
                 self.curiosity_scale = 0.99 * self.curiosity_scale + 0.01 * float(error.mean() + 1e-6)
                 r = torch.tensor(reward) + curiosity
                 storage.append({"senses": self.senses, "sentences": sentences, "last": self.last_act, "verb": verb,
-                                 "obj": obj, "act": act, "r": r, "senses_new": senses_new, "descr": descr,
+                                 "obj": obj, "mod": mod, "act": act, "r": r, "senses_new": senses_new, "descr": descr,
                                  "words": speak_words, "talks": talks, "known": known, "logp": logp_alt,
-                                 "value": value, "repeat": self.repeat_targets, "hs": hs, "ok": oks,
+                                 "value": value, "repeat": self.repeat_targets, "hs": hs, "ok": oks, "lesson": lesson,
                                  "answers": self.answers})
                 self.stats["reward"] += float(torch.tensor(reward).mean())
                 self.stats["curiosity"] += float(curiosity.mean())
@@ -268,8 +277,10 @@ class Practice:
                 speech_l = torch.stack(speech_v).mean() if speech_v else torch.tensor(0.0)
                 rep_l = torch.stack(rep_v).mean() if rep_v else torch.tensor(0.0)
                 hind_l = self._hindsight(storage, h_before)
+                size_l = self._size_lessons(storage, h_before)
                 answer_l = torch.stack(answer_v).mean() if answer_v else torch.tensor(0.0)
-                loss = loss + world_l + 0.5 * speech_l + 0.3 * rep_l + HINDSIGHT_WEIGHT * hind_l + 1.0 * answer_l
+                loss = loss + world_l + 0.5 * speech_l + 0.3 * rep_l + HINDSIGHT_WEIGHT * hind_l + 1.0 * answer_l + \
+                    SIZE_WEIGHT * size_l
                 read_l = torch.tensor(0.0)
                 if self.book:                         # a few lines of its book
                     x = reading.batch_of(self.book, self.ws, 16, 64)
@@ -297,20 +308,26 @@ class Practice:
             return
         experienced = []
         if ev["verb"] == "take" and ev["ok"] and ev["obj"] in V.THING_WORD:
-            experienced.append((ev["obj"], "taking"))
+            experienced.append((ev["obj"], "taking", ev.get("size")))
         if ev["verb"] == "eat" and ev["ok"]:
-            experienced.append(("apple", "eating"))
+            experienced.append(("apple", "eating", ev.get("size")))
         if ev["verb"] == "build" and ev["ok"]:
-            experienced += [("stone_axe", "seeing"), ("stone_axe", "carrying")]
+            experienced += [("stone_axe", "seeing", None), ("stone_axe", "carrying", None)]
         visible_now = V.visible_things(w)
         if visible_now and self.z.random() < 0.3:
-            experienced.append((self.z.choice(visible_now), "seeing"))
+            d, size = self.z.choice(visible_now)
+            experienced.append((d, "seeing", size))
         carries = [d for d, n in w.backpack.items() if n > 0]
         if carries and self.z.random() < 0.1:
-            experienced.append((self.z.choice(carries), "carrying"))
-        for thing, sense in experienced:
-            x, m = V.perceive(thing, sense, self.z)
+            d = self.z.choice(carries)
+            experienced.append((d, "carrying", V.size_in(w.backpack, w.backpack_big, d, self.z)))
+        for thing, sense, size in experienced:
+            x, m = V.perceive(thing, sense, self.z, size)
             word = V.THING_WORD[thing]
+            # the words it hears for it: "stone" – or, as the teacher would say it, "big apple" (never a held-out
+            # combination: those it only hears in the test)
+            if size and thing in V.SIZED_THINGS and not L.held_out(thing, size) and self.z.random() < 0.5:
+                word = f"{size} {word}"
             self.perceptions.append((self.ws.encode_ids(L.words(word)), x, m))
             e = self.experience.setdefault(word, {})
             e[sense] = e.get(sense, 0) + 1
@@ -348,14 +365,35 @@ class Practice:
             self.imag_opt.step()
         self.stats["imagination_error"] += float(((x - mu).abs() * m).sum().detach() / m.sum())
 
+    def _size_lessons(self, storage, h_before):
+        """Version 17 – lessons for the hands: whenever it took, put down or ate a big or a small one while both
+        were there, it replays that moment as if it had heard "Take a big apple!" (the size it really chose) and
+        learns: whoever hears this chooses that one. Never for the held-out combinations."""
+        g = self.brain
+        items = [(t, i, sentence) for t, s in enumerate(storage) for i, sentence in enumerate(s["lesson"]) if sentence]
+        if not items:
+            return torch.tensor(0.0)
+        items = self.z.sample(items, min(64, len(items)))
+        h = torch.stack([h_before[t][i] for t, i, _ in items]).detach()
+        senses = torch.stack([storage[t]["senses"][i] for t, i, _ in items])
+        last = torch.stack([storage[t]["last"][i] for t, i, _ in items])
+        verb = torch.stack([storage[t]["verb"][i] for t, i, _ in items])
+        sentences = [self.ws.encode_ids(L.words(x)) for _, _, x in items]
+        h = g.think(senses, sentence_tensor(sentences), last, h)
+        target = torch.tensor([L.MOD_OF[x] for _, _, x in items])
+        return -g.choose(h, verb).log_prob(target).mean()
+
     def _hindsight(self, storage, h_before):
         """One successful action per world: the steps before it once more, with the fitting sentence at the start."""
         g = self.brain
         samples = []
         for i in range(self.n):
             hits = [t for t, s in enumerate(storage) if s["hs"][i]]
+            sized = [t for t in hits if storage[t]["hs"][i] in L.MOD_OF]
             if hits:
-                e = self.z.choice(hits)
+                # version 17: half of the time, if there is one, a lesson with a size ("Take a big apple!") – rarer,
+                # but it is the only way to learn which one the hands should choose
+                e = self.z.choice(sized if sized and self.z.random() < 0.5 else hits)
                 samples.append((i, max(0, e - self.z.randint(0, HINDSIGHT_MAX - 1)), e, storage[e]["hs"][i]))
         if not samples:
             return torch.tensor(0.0)
@@ -374,9 +412,13 @@ class Practice:
             last = torch.stack([storage[t]["last"][i] for (i, _, _, _), t in zip(samples, ts)])
             verb = torch.stack([storage[t]["verb"][i] for (i, _, _, _), t in zip(samples, ts)])
             obj = torch.stack([storage[t]["obj"][i] for (i, _, _, _), t in zip(samples, ts)])
+            # which one (version 17): at the action itself, what the sentence asks for ("a big stone" → big,
+            # "a stone" → any); before it, what it really chose
+            mod = torch.tensor([L.MOD_OF.get(sentence, 0) if s0 + k >= e else int(storage[t]["mod"][i])
+                                for (i, s0, e, sentence), t in zip(samples, ts)])
             h = g.think(senses, sentence_tensor(sentences), last, h)
             _, od, vd = g.decide(h, verb)
-            lp = vd.log_prob(verb) + od.log_prob(obj)
+            lp = vd.log_prob(verb) + od.log_prob(obj) + g.choose(h, verb).log_prob(mod) * relevant(verb, obj)
             total_sum = total_sum - (lp * active).sum()
             n_total += int(active.sum())
         return total_sum / max(1, n_total)
@@ -401,9 +443,9 @@ class Practice:
         if d.get("with_reader"):                                  # a brain that already reads: take it as it is
             self.ws = Vocabulary(d["capacity"], d["words"])
             self.brain = Brain(vocab=self.ws.capacity)
-            missing = self.brain.load_state_dict(d["brain"], strict=False).missing_keys
+            missing = self.brain.load_grown(d["brain"])
             if missing:
-                print("new parts in the brain (start fresh):", sorted({k.split(".")[0] for k in missing}), flush=True)
+                print("new parts in the brain (start fresh):", missing, flush=True)
             self.opt = torch.optim.Adam(self.brain.parameters(), lr=self.lr)
             try:
                 self.opt.load_state_dict(d["opt"])

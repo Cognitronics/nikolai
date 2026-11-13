@@ -31,6 +31,16 @@ Phase 8 – Tells its friend where food is: NikolAI stands where an apple lies; 
 Phase 9 – Imagines what it knows: from the heard word alone, how close are its expected looks (colour, size, shape,
           parts) to what the thing is really like? Baseline: the average of all things. And does it stay unsure about
           words it never touched (e.g. "tiger", "window" – never trained, not even as fog)?
+Phase 10 – Understands sizes and combines words (version 17): a big and a small one of the same thing lie on the floor
+          (or it carries both), with other things around, 10 steps. The question is the size, not the thing: whenever
+          it takes (or puts down) a stone, is it the right one? Each thing is tested both ways – "Take a big stone!" and
+          "Take a small stone!" – from the same starts. If it ignores the size word, it does the same thing both times
+          (e.g. always the small one) and gets one of the two right at most. "Understood": the right size in at least
+          70 % for BOTH sentences (from at least 10 trials each where it handled that thing). For comparison: which
+          size it takes with the noun alone ("Take a stone!"). One combination the teacher never says: "big stone". NikolAI heard
+          "big" and "small" with apples and branches, but "stone" only as "small stone". If it gets "big stone" right
+          too, it combines words it never heard together (systematic generalisation).
+Phase 10b – Imagines combinations: does "big stone" (never heard) make it expect a bigger stone than "small stone"?
 Phase 7 – Answers questions about itself: a random situation (place, hunger, what it carries, what it just did),
           then the teacher asks ("Where are you?" …). Is its answer exactly the true one? Baseline: always giving the
           most frequent answer. A question type counts when it is right in at least 70 % and 30 points above that
@@ -43,8 +53,9 @@ import torch
 
 from . import teacher as L
 from .brain import END
+from .brain import relevant
 from .practice import SAY, sentence_tensor, words_from
-from .world import OBJECTS, VERBS, PATHS, World
+from .world import MODS, OBJECTS, VERBS, PATHS, VARIANTS, SIZES, World
 
 WHERE_STEPS = 4
 WHERE_PLACES = ("forest", "river", "workshop")
@@ -55,6 +66,7 @@ def _start(world, task):
         world.backpack[task[1]] = 1
     if task == ("eat", "apple"):
         world.hunger = 0.6
+    world.shuffle_sizes()
 
 
 def _start_fair(world, task):
@@ -71,6 +83,7 @@ def _start_fair(world, task):
             world.backpack[x] = 1
     elif v == "go":
         world.place = "hut"
+    world.shuffle_sizes()
 
 
 FAIR_STEPS = 4           # Phase 6b: one or two steps are enough if it understood
@@ -78,18 +91,28 @@ TEST_STEPS = 15          # shorter than in training: otherwise it does many thin
 
 
 def _creature_step(g, ws, w, heard, last, h, z, random_acts):
-    """One step in a test: action and (alongside) what it says. Returns (v, o, words, last, h)."""
+    """One step in a test: action and (alongside) what it says. Returns (v, o, words, last, h).
+    Which one its hands choose (any / big / small – version 17) is kept in w.next_mod for w.step."""
     if random_acts:
         v = z.randrange(len(VERBS) - 1)                      # without "say"
         o = z.randrange(len(OBJECTS))
+        w.next_mod = z.randrange(len(MODS))
         words = [ws.word(z.randrange(3, len(ws.vocab_list))) for _ in range(z.randint(1, 3))] if z.random() < 0.3 else []
         return v, o, words, last, h
     h = g.think(torch.tensor([w.senses()]), sentence_tensor([heard]), last, h)
     verb, od, _ = g.decide(h)
     obj = od.sample()
+    w.next_mod = choose_mod(g, h, verb, obj)
     talks = bool(g.switch(h).sample().item())
     words = words_from(ws, g.speak(h, len(ws.vocab_list))[0][0]) if talks else []
     return int(verb), int(obj), words, g.act_index(verb, obj), h
+
+
+def choose_mod(g, h, verb, obj):
+    """Which one the hands choose (0 = any if it doesn't matter, or for brains without this part)."""
+    if not hasattr(g, "mod_head") or not bool(relevant(verb, obj)[0]):
+        return 0
+    return int(g.choose(h, verb).sample())
 
 
 # Phase 6b: instructions with words NikolAI only knows from reading – the teacher never says them
@@ -126,7 +149,7 @@ def task_trial(g, ws, task, seed, with_sentence=True, random_acts=False, sentenc
     heard = ws.encode_ids(L.words(sentence), 16) if with_sentence else []
     for t in range(FAIR_STEPS if fair else TEST_STEPS):
         v, o, words, last, h = _creature_step(g, ws, w, heard, last, h, z, random_acts)
-        _, ev = w.step(v, o)
+        _, ev = w.step(v, o, getattr(w, "next_mod", 0))
         if words:
             ev["words"] = words
         if L.fulfilled(task, ev):
@@ -159,13 +182,14 @@ def phase1(g, ws, steps=600, seeds=5, random_acts=False):
         h, last, heard = torch.zeros(1, g.h), g.no_act(1), []
         for _ in range(steps):
             if random_acts:
-                v, o = z.randrange(len(VERBS)), z.randrange(len(OBJECTS))
+                v, o, m = z.randrange(len(VERBS)), z.randrange(len(OBJECTS)), z.randrange(len(MODS))
             else:
                 h = g.think(torch.tensor([w.senses()]), sentence_tensor([heard]), last, h)
                 verb, od, _ = g.decide(h)
                 obj = od.sample()
+                m = choose_mod(g, h, verb, obj)
                 v, o, last = int(verb), int(obj), g.act_index(verb, obj)
-            _, ev = w.step(v, o)
+            _, ev = w.step(v, o, m)
             hunger += w.hunger
             b = L.describe(ev, w)
             heard = ws.encode_ids(L.words(b), 16) if b and z.random() < 0.6 else []
@@ -185,7 +209,7 @@ def phase3(g, ws, steps=300, seed=7):
         verb, od, _ = g.decide(h_before)
         obj = od.sample()
         act = g.act_index(verb, obj)
-        _, ev = w.step(int(verb), int(obj))
+        _, ev = w.step(int(verb), int(obj), choose_mod(g, h_before, verb, obj))
         b = L.describe(ev, w)
         if b:
             z_state = g.speech_state(h_before, torch.tensor([w.senses()]), act)
@@ -233,10 +257,11 @@ def question_trial(g, ws, qtype, seed):
     w.hunger = z.random()
     for d in ("apple", "branch", "bast", "stone"):
         w.backpack[d] = 1 if z.random() < 0.3 else 0
+    w.shuffle_sizes()
     h, last, ev = torch.zeros(1, g.h), g.no_act(1), None
     for _ in range(3):
         v, o, words, last, h = _creature_step(g, ws, w, [], last, h, z, False)
-        _, ev = w.step(v, o)
+        _, ev = w.step(v, o, getattr(w, "next_mod", 0))
     if z.random() < 0.5:                    # sometimes something definitely happened just before: a walk
         way = z.choice(list(PATHS[w.place]))
         if way:
@@ -283,8 +308,8 @@ def friend_trial(g, ws, place, seed, hearing=True, random_acts=False):
     for _ in range(FRIEND_STEPS):
         va, oa, wa, la, ha = _creature_step(g, ws, a, ga, la, ha, z, random_acts)
         vb, ob, wb, lb, hb = _creature_step(g, ws, b, gb, lb, hb, z, random_acts)
-        _, eva = a.step(va, oa)
-        _, evb = b.step(vb, ob)
+        _, eva = a.step(va, oa, getattr(a, "next_mod", 0))
+        _, evb = b.step(vb, ob, getattr(b, "next_mod", 0))
         if evb["verb"] == "take" and evb["obj"] == "apple" and evb["ok"] and evb["place"] == place:
             return True, named
         if wa and L.PLACE_WORD.get(place) in wa:
@@ -352,7 +377,101 @@ def run_all(g, ws, trials=30, book=None):
             "phase3": phase3(g, ws), "phase4": phase4(g, ws, max(10, trials)),
             "phase5": phase5(g, ws, trials), "phase6": phase6(g, ws, book, trials),
             "phase7": phase7(g, ws, trials), "phase8": phase8(g, ws, trials),
-            "phase9": phase9(g, ws)}
+            "phase9": phase9(g, ws), "phase10": phase10(g, ws, trials)}
+
+
+# ------------------------------------------------------------ Phase 10 (version 17): sizes and combining words
+SIZE_STEPS = 10
+SIZE_TASKS = [(v, d, x) for v in ("take", "put") for d in VARIANTS for x in SIZES
+              if (v, d) not in L.NEVER_TRAINED]          # "Put down the apple!" stays a Phase 2b test
+
+
+def _start_sizes(world, task, z):
+    """A big and a small one of the thing (on the floor, or in the backpack), and other things around."""
+    v, d, _ = task
+    world.hunger = 0.1
+    world.place = "workshop"                       # nothing grows here – only what lies on the floor
+    others = [x for x in VARIANTS if x != d]
+    if v == "take":
+        world.place_thing("workshop", d, "big")
+        world.place_thing("workshop", d, "small")
+        for x in others + ["bast"]:
+            world.place_thing("workshop", x)
+    else:
+        for size in ("big", "small"):
+            world._add(world.backpack, world.backpack_big, d, size)
+        x = z.choice(others)
+        world._add(world.backpack, world.backpack_big, x, z.choice(SIZES))
+
+
+@torch.no_grad()
+def size_trial(g, ws, task, seed, sentence=None, random_acts=False):
+    """Returns (did it right, chose the right thing at all)."""
+    z = random.Random(seed)
+    w = World(random.Random(seed))
+    _start_sizes(w, task, z)
+    h, last = torch.zeros(1, g.h), g.no_act(1)
+    heard = ws.encode_ids(L.words(sentence), 16) if sentence else []
+    right_thing = False                          # did it handle that thing at all (whichever size)?
+    for _ in range(SIZE_STEPS):
+        v, o, words, last, h = _creature_step(g, ws, w, heard, last, h, z, random_acts)
+        _, ev = w.step(v, o, getattr(w, "next_mod", 0))
+        if ev["ok"] and ev["verb"] == task[0] and ev["obj"] == task[1]:
+            right_thing = True
+            return ev.get("size") == task[2], True
+        b = L.describe(ev, w)
+        heard = ws.encode_ids(L.words(b), 16) if b and z.random() < 0.6 else []
+    return False, right_thing
+
+
+def phase10(g, ws, trials=30):
+    rows = []
+    for task in SIZE_TASKS:
+        sized = L.SIZED[task]
+        plain = L.INSTRUCTIONS[task[:2]]
+        r = {"task": sized, "held_out": L.held_out(task[1], task[2]), "plain": plain}
+        for k, kw in (("with", {"sentence": sized}), ("noun_only", {"sentence": plain})):
+            res = [size_trial(g, ws, task, 4000 + s, **kw) for s in range(trials)]
+            r[k] = sum(a for a, _ in res) / trials
+            did = [a for a, b in res if b]                   # trials where it handled that thing at all
+            r["n_" + k] = len(did)
+            r["size_" + k] = sum(did) / len(did) if did else None     # … and then chose the right size
+        rows.append(r)
+    pairs = []
+    for v, d in sorted({t[:2] for t in SIZE_TASKS}, key=lambda a: (a[0] != "take", VARIANTS.index(a[1]))):
+        big, small = [next(r for r, t in zip(rows, SIZE_TASKS) if t == (v, d, x)) for x in SIZES]
+        p = {"verb": v, "thing": d, "held_out": big["held_out"] or small["held_out"],
+             "plain": big["plain"], "big_sentence": big["task"], "small_sentence": small["task"],
+             "big": big["size_with"], "n_big": big["n_with"], "small": small["size_with"], "n_small": small["n_with"],
+             "noun_only_big": big["size_noun_only"]}                     # with the noun alone: how often the big one
+        if min(p["n_big"], p["n_small"]) < 10:
+            p["verdict"] = "too few tries"
+        else:
+            p["effect"] = round(p["big"] + p["small"] - 1, 3)         # P(big | "big …") – P(big | "small …")
+            p["verdict"] = "understood" if p["big"] >= 0.7 and p["small"] >= 0.7 else "not yet"
+        pairs.append(p)
+    out = {"tasks": rows, "pairs": pairs}
+    if hasattr(g, "imagine"):
+        out["imagined"] = _imagined_sizes(g, ws)
+    return out
+
+
+@torch.no_grad()
+def _imagined_sizes(g, ws):
+    """Phase 10b: how big does it imagine "big X" and "small X" – also for combinations it never heard?"""
+    from . import imagination as V
+    rows = []
+    for d in VARIANTS:
+        r = {"thing": d, "held_out": [x for x in SIZES if L.held_out(d, x)]}
+        for x in SIZES:
+            mu, _ = g.imagine(sentence_tensor([ws.encode_ids(L.words(f"{x} {V.THING_WORD[d]}"))]))
+            r[x] = round(float(mu[0, V.IDX["size"]]), 3)
+            r["true_" + x] = V.SIZE_OF[(d, x)][0]
+        r["difference"] = round(r["big"] - r["small"], 3)
+        r["true_difference"] = round(r["true_big"] - r["true_small"], 3)
+        r["verdict"] = "understood" if r["difference"] >= 0.5 * r["true_difference"] else "not yet"
+        rows.append(r)
+    return rows
 
 
 def _hungry_in_hut(seed, place, hunger=0.7):
@@ -370,7 +489,7 @@ def where_trial(g, ws, place, seed, with_sentence=True, random_acts=False):
     heard = ws.encode_ids(L.words(L.where_sentence(place)), 16) if with_sentence else []
     for _ in range(WHERE_STEPS):
         v, o, words, last, h = _creature_step(g, ws, w, heard, last, h, z, random_acts)
-        _, ev = w.step(v, o)
+        _, ev = w.step(v, o, getattr(w, "next_mod", 0))
         if ev["verb"] == "take" and ev["obj"] == "apple" and ev["ok"]:
             return True
         b = L.describe(ev, w)
@@ -387,7 +506,7 @@ def asking_trial(g, ws, hunger, seed, random_acts=False, steps=10):
     h, last, heard = torch.zeros(1, g.h), g.no_act(1), []
     for _ in range(steps):
         v, o, words, last, h = _creature_step(g, ws, w, heard, last, h, z, random_acts)
-        _, ev = w.step(v, o)
+        _, ev = w.step(v, o, getattr(w, "next_mod", 0))
         if words:
             ev["words"] = words
             if "where" in words:
@@ -459,6 +578,17 @@ def milestones(e):
     p8 = e.get("phase8")
     if p8:
         res["Phase 8 · Tells its friend where food is"] = any(r["verdict"] == "understood" for r in p8["friend"])
+    p10 = e.get("phase10")
+    if p10:
+        trained = [r for r in p10["pairs"] if not r["held_out"]]
+        fresh = [r for r in p10["pairs"] if r["held_out"]]
+        res["Phase 10 · Understands big and small (“Take a small branch!”)"] = \
+            sum(r["verdict"] == "understood" for r in trained) >= 2
+        res["Phase 10b · Combines words it never heard together (“big stone”)"] = \
+            any(r["verdict"] == "understood" for r in fresh)
+        im = p10.get("imagined") or []
+        res["Phase 10c · Imagines a big stone without ever hearing of one"] = bool(im) and all(
+            r["verdict"] == "understood" for r in im if r["held_out"])
     p9 = e.get("phase9")
     if p9:
         res["Phase 9 · Imagines what it knows – and knows what it doesn’t"] = (
@@ -480,6 +610,7 @@ def request_trial(g, ws, situation, seed, random_acts=False, steps=10):
     things, hunger = SITUATIONS[situation]
     for d, n in things.items():
         w.backpack[d] = n
+    w.shuffle_sizes()
     w.hunger = hunger
     le = L.Teacher(random.Random(seed), instructions=False)
     h, last, heard = torch.zeros(1, g.h), g.no_act(1), []
@@ -488,7 +619,7 @@ def request_trial(g, ws, situation, seed, random_acts=False, steps=10):
     said = []
     for _ in range(steps):
         v, o, words, last, h = _creature_step(g, ws, w, heard, last, h, z, random_acts)
-        _, ev = w.step(v, o)
+        _, ev = w.step(v, o, getattr(w, "next_mod", 0))
         if words:
             ev["words"] = words
             said.append(words)

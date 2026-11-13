@@ -15,6 +15,9 @@ to how much the thing really varies; where it has none, it stays wide: fog. Word
 coding; e.g. Rao & Ballard 1999, Friston 2010) – and the picture on the dashboard is drawn from samples of these
 expectations: certain = sharp, uncertain = blurred, varying = flickering between possibilities.
 
+Version 17: apples, branches and stones are big or small. A big one is bigger and heavier. When it hears "big apple"
+it should expect a bigger one than for "small apple" – and for "big stone", which it never heard, too (Phase 10b).
+
 The paint box (circle, line, colour, blur) is given, like crayons for a child. What it paints, and how exactly,
 comes only from its experience.
 """
@@ -38,6 +41,9 @@ SENSE = {
     "eating": ["sweet", "sour"],
 }
 
+SIZED_THINGS = ("apple", "branch", "stone")
+SIZE_OF = {("apple", "big"): (0.38, 0.03), ("apple", "small"): (0.22, 0.03), ("branch", "big"): (0.78, 0.06),
+           ("branch", "small"): (0.42, 0.06), ("stone", "big"): (0.52, 0.05), ("stone", "small"): (0.2, 0.05)}
 THING_WORD = {"apple": "apple", "branch": "branch", "bast": "bast", "stone": "stone", "stone_axe": "stone axe"}
 
 
@@ -45,9 +51,12 @@ def _n(z, m, s):
     return min(1.0, max(0.0, z.gauss(m, s)))
 
 
-def sample_thing(thing, z):
-    """One real thing of this kind, with all its properties (a fresh one each time – things vary)."""
+def sample_thing(thing, z, size=None):
+    """One real thing of this kind, with all its properties (a fresh one each time – things vary).
+    size (version 17): big or small for apples, branches and stones (random if not given)."""
     x = dict.fromkeys(PROPERTIES, 0.0)
+    if thing in SIZED_THINGS and not size:
+        size = z.choice(["big", "small"])
     if thing == "apple":
         colour = z.choices([(0.85, 0.15, 0.12), (0.45, 0.8, 0.25), (0.95, 0.82, 0.2)], [0.5, 0.3, 0.2])[0]
         x.update(red=_n(z, colour[0], 0.05), green=_n(z, colour[1], 0.05), blue=_n(z, colour[2], 0.04),
@@ -70,12 +79,16 @@ def sample_thing(thing, z):
         x.update(red=_n(z, 0.5, 0.05), green=_n(z, 0.45, 0.05), blue=_n(z, 0.4, 0.05), size=_n(z, 0.6, 0.08),
                  long=_n(z, 0.7, 0.05), rough=_n(z, 0.4, 0.1), weight=_n(z, 0.7, 0.08), hard=_n(z, 0.9, 0.05),
                  handle=1.0, blade=1.0, binding=1.0, spots=_n(z, 0.3, 0.1))
+    if thing in SIZED_THINGS:                          # version 17: big or small – bigger is heavier
+        m, s = SIZE_OF[(thing, size)]
+        x["size"] = _n(z, m, s)
+        x["weight"] = _n(z, x["weight"] * (1.25 if size == "big" else 0.75), 0.03)
     return x
 
 
-def perceive(thing, sense, z):
+def perceive(thing, sense, z, size=None):
     """(properties as a tensor, mask: which ones this sense reveals). Seeing is a little blurry."""
-    x = sample_thing(thing, z)
+    x = sample_thing(thing, z, size)
     noise = 0.04 if sense == "seeing" else 0.0
     vals = torch.tensor([min(1.0, max(0.0, x[n] + z.gauss(0, noise))) for n in PROPERTIES])
     mask = torch.zeros(P)
@@ -84,21 +97,33 @@ def perceive(thing, sense, z):
     return vals, mask
 
 
-def true_distribution(thing, n=2000, seed=0):
+def true_distribution(thing, n=2000, seed=0, size=None):
     """What this kind of thing is really like on average, and how much it varies (for the tests)."""
     z = random.Random(seed)
-    xs = torch.tensor([[sample_thing(thing, z)[e] for e in PROPERTIES] for _ in range(n)])
+    xs = torch.tensor([[sample_thing(thing, z, size)[e] for e in PROPERTIES] for _ in range(n)])
     return xs.mean(0), xs.std(0)
 
 
+def size_in(total, big, thing, z):
+    """The size of a random one of these things in a store (ground or backpack), or None."""
+    if thing not in SIZED_THINGS or total[thing] <= 0:
+        return None
+    return "big" if z.random() < big[thing] / total[thing] else "small"
+
+
 def visible_things(world):
-    """Which kinds of things NikolAI can see right now (on the ground, on the tree, at their source)."""
+    """Which things NikolAI can see right now (on the ground, on the tree, at their source): [(thing, size)]."""
     from .world import SOURCES
-    visible_now = [d for d, n in world.ground[world.place].items() if n > 0]
-    for d in SOURCES.get(world.place, []):
-        if d != "apple" or world.apple_ready == 0:
-            visible_now.append(d)
-    return sorted(set(visible_now))
+    z = world.z
+    here = world.place
+    visible_now = [(d, size_in(world.ground[here], world.ground_big[here], d, z))
+                   for d, n in world.ground[here].items() if n > 0]
+    for d in SOURCES.get(here, []):
+        if d == "apple" and world.apple_ready == 0:
+            visible_now.append((d, "big" if world.tree_big else "small"))
+        elif d != "apple":
+            visible_now.append((d, z.choice(["big", "small"])))
+    return visible_now
 
 
 UNKNOWN = ["dragon", "house", "sun", "moon", "ship", "castle", "flower", "bird", "fish", "cat", "dog", "horse",

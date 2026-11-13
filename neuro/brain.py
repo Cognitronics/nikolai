@@ -10,7 +10,8 @@ Structure (everything learns together, nothing is pre-programmed except the sens
                                     │   something (up to seven words) – talking and acting at once, as children do.
                                     │   Learned in two ways: repeating what the teacher prompts ("Say: I want an
                                     │   apple") and reward when what it says achieves something.
-                                    └─► imagination (version 15): from a heard word to expected properties
+                                    ├─► imagination (version 15): from heard words to expected properties
+                                    └─► which one (version 17): any, a big one or a small one – the hands choose
 
 Version 7 – reading: hearing and speaking get a language memory from books (reading.py). Hearing is a language model
 (GRU) that learned to predict the next word while reading. Speech and talking start with the same weights – so
@@ -26,7 +27,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .world import OBJECTS, SENSES, VERBS
+from .world import MODS, OBJECTS, SENSES, VARIANTS, VERBS
 
 PAD, START, END = 0, 1, 2
 SPEECH_MAX = 8            # up to 7 words + end ("there is an apple in the forest")
@@ -78,6 +79,10 @@ class Brain(nn.Module):
         self.verb_emb = nn.Embedding(nv, 32)
         self.obj_head = nn.Sequential(nn.Linear(h + 32, 128), nn.ReLU(), nn.Linear(128, no))
         self.value = nn.Linear(h, 1)
+        # version 17: which one – any, a big one, a small one (only matters when taking, putting down or eating)
+        self.mod_head = nn.Sequential(nn.Linear(h + 32, 64), nn.ReLU(), nn.Linear(64, len(MODS)))
+        with torch.no_grad():
+            self.mod_head[2].bias.copy_(torch.tensor([2.0, 0.0, 0.0]))     # at first: just any
         self.world_model = nn.Sequential(nn.Linear(h + 32, 256), nn.ReLU(), nn.Linear(256, SENSES))
         self.speech_start = nn.Linear(h + 128 + 32, h)
         self.speech = nn.GRU(WORD_DIM, h, batch_first=True)
@@ -161,6 +166,10 @@ class Brain(nn.Module):
         od = torch.distributions.Categorical(logits=ol)
         return verb, od, vd
 
+    def choose(self, h, verb):
+        """Version 17: which one the hands choose (any / big / small)."""
+        return torch.distributions.Categorical(logits=self.mod_head(torch.cat([h, self.verb_emb(verb)], 1)))
+
     def speak(self, h, known, words=None):
         """Talking as an action: samples up to SPEECH_MAX words (only heard ones). Returns (words, logp, entropy).
         With words=(B, SPEECH_MAX) it only computes the probability of these words (for learning)."""
@@ -222,9 +231,21 @@ class Brain(nn.Module):
             elif k == "act.weight":
                 fresh[k][:nv_old * no] = v[:nv_old * no]
                 fresh[k][self.nv * no] = v[nv_old * no]          # "no action yet" now sits further back
+            else:
+                fresh[k] = _overlap(fresh[k], v)
         missing = [k for k in fresh if k not in old]
         self.load_state_dict(fresh)
         return nv_old != self.nv or bool(missing)
+
+    def load_grown(self, old):
+        """Load a brain from an older version whose senses were fewer (version 17 added sizes): what it knows stays,
+        new senses start with no influence, new parts start fresh. Returns the names of new parts."""
+        fresh = self.state_dict()
+        for k, v in old.items():
+            if k in fresh:
+                fresh[k] = v if fresh[k].shape == v.shape else _overlap(fresh[k], v)
+        self.load_state_dict(fresh)
+        return sorted({k.split(".")[0] for k in fresh if k not in old})
 
     @torch.no_grad()
     def utter(self, z, maxlen=12, temperature=0.0):
@@ -246,3 +267,21 @@ class Brain(nn.Module):
             out.append(n)
             w = nxt.view(1, 1)
         return out
+
+
+def relevant(verb, obj):
+    """Does "which one" matter for this action? (taking, putting down or eating an apple, a branch or a stone)"""
+    vs = torch.tensor([VERBS.index(x) for x in ("take", "put", "eat")])
+    os_ = torch.tensor([OBJECTS.index(x) for x in VARIANTS])
+    return (verb.unsqueeze(1) == vs).any(1) & (obj.unsqueeze(1) == os_).any(1)
+
+
+def _overlap(new, old):
+    """Copy an older, smaller weight into the new one where they overlap. New inputs get zero weight (they change
+    nothing at first), new outputs keep their fresh start."""
+    out = new.clone()
+    if new.dim() == 2 and new.shape[0] == old.shape[0] and new.shape[1] > old.shape[1]:
+        out[:, old.shape[1]:] = 0.0                       # new senses: no influence yet
+    sl = tuple(slice(0, min(a, b)) for a, b in zip(new.shape, old.shape))
+    out[sl] = old[sl]
+    return out

@@ -126,7 +126,7 @@ class Runtime:
             verb, od, _ = g.decide(h)
             obj = od.sample()
             act = g.act_index(verb, obj)
-            _, ev = w.step(int(verb), int(obj))
+            _, ev = w.step(int(verb), int(obj), evaluation.choose_mod(g, h, verb, obj))
             self.l_ev = ev
             if bool(g.switch(h).sample().item()):          # talks alongside
                 ev["words"] = words_from(self.u.ws, g.speak(h, len(self.u.ws.vocab_list))[0][0])
@@ -141,6 +141,8 @@ class Runtime:
             v, o = VERBS[int(verb)], OBJECTS[int(obj)]
             if v not in ("wait", "say"):
                 what = DIRECTION_NAME.get(o) or THING_NAME.get(o, o)
+                if ev.get("size") and ev["ok"]:
+                    what = f"{ev['size']} {what}"
                 extra_text = f" → {PLACE_NAME[ev['target']]}" if v == "go" and ev["ok"] else ""
                 self.note(f"{ACT_TEXT[v]} {what}{extra_text} {'✓' if ev['ok'] else '✗'}", "act")
             if sentence:
@@ -165,7 +167,7 @@ class Runtime:
         verb, od, _ = g.decide(h)
         obj = od.sample()
         act = g.act_index(verb, obj)
-        _, ev = w.step(int(verb), int(obj))
+        _, ev = w.step(int(verb), int(obj), evaluation.choose_mod(g, h, verb, obj))
         self.k_said = []
         if bool(g.switch(h).sample().item()):
             self.k_said = words_from(self.u.ws, g.speak(h, len(self.u.ws.vocab_list))[0][0])
@@ -273,7 +275,7 @@ class Runtime:
                                              "word_diary": self.word_diary.to_dict(), "imag_history": self.imag_history,
                                              "runtime": self.runtime})
 
-    GALLERY = ["apple", "branch", "stone", "bast", "stone axe", "dragon"]
+    GALLERY = ["apple", "branch", "stone", "bast", "stone axe", "dragon", "big apple", "small apple", "big stone"]
 
     @torch.no_grad()
     def imagination(self, words):
@@ -303,22 +305,34 @@ class Runtime:
             st = "last" if st is True else "no" if st is False else st
             milestones.append({"de": k, "en": k, "status": st,
                                  "reached": self.reached.get(k)})
-        task = L.INSTRUCTIONS.get(self.ll.task) if self.ll.task else None
+        task = L.instruction(self.ll.task) if self.ll.task else None
         return {"name": self.name, "steps": self.u.steps, "runtime_h": round(self.runtime / 3600, 2),
                 "words": len(self.u.ws.vocab_list) - 4 if self.u.with_reader else len(self.u.ws.vocab_list) - 3, "worlds": self.u.n, "public": self.is_public,
                 "curves": list(self.curves[-600:]), "last_eval": p, "milestones": milestones,
                 "log": list(self.log[-80:]),
                 "live": {"place": PLACE_NAME[w.place], "hunger": round(w.hunger, 2),
-                         "backpack": {THING_NAME[d]: n for d, n in w.backpack.items() if n},
+                         "backpack": _backpack(w),
                          "task": task,
                          "apple_lies": PLACE_NAME[w.windfall] if w.windfall else None,
                          "tree_rests": w.apple_ready > 10 ** 8,
                          "kogli": {"place": PLACE_NAME[self.kw.place], "hunger": round(self.kw.hunger, 2),
-                                   "backpack": {THING_NAME[d]: n for d, n in self.kw.backpack.items() if n}}},
+                                   "backpack": _backpack(self.kw)}},
                 "instructions": list(L.QUESTIONS.values()) + list(L.INSTRUCTIONS.values()), "english_since": self.english_since,
                 "reads": self.u.with_reader, "words_read": self.u.words_read, "reading_since": self.reading_since,
                 "cloud": self.word_diary.cloud(), "properties": V.PROPERTIES,
                 "gallery": self.imagination(self.GALLERY), "imag_history": self.imag_history[-12:]}
+
+
+def _backpack(w):
+    """What it carries, with sizes (version 17): {"big apple": 1, "small stone": 2, "bast": 1}."""
+    out = {}
+    for d, n in w.backpack.items():
+        big = w.backpack_big.get(d, 0)
+        for name, k in (((f"big {THING_NAME[d]}", big), (f"small {THING_NAME[d]}", n - big)) if d in w.backpack_big
+                        else ((THING_NAME[d], n),)):
+            if k:
+                out[name] = k
+    return out
 
 
 def start_server(port=8091, host="127.0.0.1", storage="brain.pt", worlds=32, threads=6, is_public=False, reader=None,
