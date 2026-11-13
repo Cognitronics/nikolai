@@ -1,11 +1,20 @@
 # NikolAI
 
+> ### 🟢 Watch it learn – live: **[nikolai.cognitronics.ai](https://nikolai.cognitronics.ai)**
+> NikolAI is running right now on a small home server. The public page shows its world, what it hears and says,
+> its training curves, its word memory, how it imagines things and every test – updated in real time.
+
+[![NikolAI live dashboard](docs/dashboard-hero.png)](https://nikolai.cognitronics.ai)
+
 *A Cognitronics project.* A neural creature that learns English from scratch – in a small world of its own, with a
 teacher, a friend, and books. No sentence rules, no vocabulary list, no planner. It gets its senses (where am I, what
 do I see, what do I carry, how hungry am I), hears what is said, reads, and learns. Everything it says, it has
 learned by itself.
 
-**Live:** [nikolai.cognitronics.ai](https://nikolai.cognitronics.ai) (read-only view)
+[![NikolAI and Kogli living in their world, in real time](docs/dashboard-live.png)](https://nikolai.cognitronics.ai/#live)
+
+*Above: the live view – NikolAI and its friend Kogli in their world, the teacher's words and NikolAI's own answers,
+second by second.*
 
 ## What it does
 
