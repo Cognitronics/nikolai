@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=georg
-WorkingDirectory=/home/georg/nikolai/neuro16
+WorkingDirectory=/home/georg/nikolai/neuro17
 # free the CPU while reading, and start NikolAI again (with its new reading brain) when reading is done
 ExecStartPre=+/bin/systemctl stop nikolai-neuro
 ExecStart=/home/georg/nikolai/neuro-venv/bin/python -m neuro.reading --book /home/georg/nikolai/buecher/babylm --reader /home/georg/nikolai/neuro/leser_babylm.pt --hours 8 --threads 7
