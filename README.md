@@ -231,6 +231,11 @@ NikolAI is an open project and help is welcome – from machine learning and neu
 visualisation and plain curiosity. Open an [issue](https://github.com/Cognitronics/nikolai/issues) with a question,
 an idea or something you'd like to work on, send a pull request, or write to office@cognitronics.ai.
 
+## Support
+
+NikolAI is built and trained in spare time on a small home server. If you'd like to help cover hardware and
+electricity, you can [support the project via PayPal](https://paypal.me/cognitronics) – thank you! ♥
+
 ## License
 
 MIT – see [LICENSE](LICENSE).
