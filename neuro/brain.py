@@ -83,6 +83,8 @@ class Brain(nn.Module):
         self.mod_head = nn.Sequential(nn.Linear(h + 32, 64), nn.ReLU(), nn.Linear(64, len(MODS)))
         with torch.no_grad():
             self.mod_head[2].bias.copy_(torch.tensor([2.0, 0.0, 0.0]))     # at first: just any
+        # version 18: how much the hands trust imagination ("which one fits what I expect?")
+        self.trust = nn.Parameter(torch.tensor(1.0))
         self.world_model = nn.Sequential(nn.Linear(h + 32, 256), nn.ReLU(), nn.Linear(256, SENSES))
         self.speech_start = nn.Linear(h + 128 + 32, h)
         self.speech = nn.GRU(WORD_DIM, h, batch_first=True)
@@ -166,9 +168,13 @@ class Brain(nn.Module):
         od = torch.distributions.Categorical(logits=ol)
         return verb, od, vd
 
-    def choose(self, h, verb):
-        """Version 17: which one the hands choose (any / big / small)."""
-        return torch.distributions.Categorical(logits=self.mod_head(torch.cat([h, self.verb_emb(verb)], 1)))
+    def choose(self, h, verb, match=None):
+        """Which one the hands choose (any / big / small). match (version 18): how much better the big one fits what
+        it expects than the small one – pushes big or small, as much as it trusts its imagination."""
+        logits = self.mod_head(torch.cat([h, self.verb_emb(verb)], 1))
+        if match is not None:
+            logits = logits + self.trust * match.unsqueeze(1) * torch.tensor([0.0, 0.5, -0.5])
+        return torch.distributions.Categorical(logits=logits)
 
     def speak(self, h, known, words=None):
         """Talking as an action: samples up to SPEECH_MAX words (only heard ones). Returns (words, logp, entropy).

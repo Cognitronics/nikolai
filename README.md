@@ -39,6 +39,9 @@ second by second.*
   a small stone!" or "Eat the big apple!" – but never "big stone". Does NikolAI understand it anyway, from "big"
   heard with apples and branches and "stone" heard only as "small stone"? That is the classic test of systematic generalisation
   (Lake & Baroni 2018; Hill et al. 2020), and small networks often fail it.
+- **Lets imagination guide its hands.** Before it takes one of a big and a small thing, it looks at both and compares
+  them with what it expects from what it just heard ("Take a big stone!" → something stone-like and big). The better
+  match gets a push; how much it trusts that push is learned.
 - **Shows its word memory.** A word cloud of what it says, the words closest to any word in its head (from books and
   from its world), and an Obsidian vault of all of it.
 
@@ -66,7 +69,7 @@ second by second.*
 | 7 | Does it answer questions about itself truthfully (vs. guessing)? |
 | 8 | Does it tell its friend where food is (vs. the line cut)? |
 | 9 | Does it imagine what it knows – and stay unsure about what it never touched? |
-| 10 / 10b / 10c | Does it pick the big or the small one on request (vs. the sentence without the size) – also for combinations it never heard? Does it imagine a "big stone" bigger than a "small stone"? |
+| 10 / 10b / 10c (+ trust) | Does it pick the big or the small one on request (vs. the sentence without the size) – also for combinations it never heard? Does it imagine a "big stone" bigger than a "small stone"? |
 
 ## Install (Linux)
 
@@ -129,6 +132,13 @@ older versions (with German names) load as they are.
   test (two one-hour runs from a trained brain): it starts to pick big or small branches on request; for the
   never-heard "big stone" its hands still take the small one (it only ever heard "small stone") – but its
   imagination already pictures a big stone about twice as big as a small one.
+- **18** Imagination guides the hands: imagination also learns from whole sentences, and before choosing between a
+  big and a small one, NikolAI compares both with what it expects. Tested against version 17 (two one-hour runs
+  each, same start): it now tells big and small apples apart clearly better (both runs); for "Take a big stone!"
+  its imagination does expect a big stone and pushes its hands that way (at the moment of choosing, the big one goes
+  from 4 % to 23 %) – but the old habit "a stone is a small one" is still stronger, and its trust in imagination
+  even sank a little (1.00 → 0.93). The likely reason: in practice the habit is never wrong, so nothing teaches it
+  to trust imagination more. Not solved yet – and shown as such on the dashboard.
 
 ## Next
 

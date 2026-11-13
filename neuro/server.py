@@ -117,6 +117,7 @@ class Runtime:
             if self.user_sentences:
                 self.l_heard = self.l_heard + self.u.ws.encode_ids(L.words(" ".join(self.user_sentences)), 16)
                 self.user_sentences = []
+            evaluation.expect(g, w, self.l_heard)
             h = g.think(torch.tensor([w.senses()]), sentence_tensor([self.l_heard]), self.l_last, self.lh)
             if self.l_question:                                  # the teacher just asked something: answer
                 self.l_question = False
@@ -126,7 +127,7 @@ class Runtime:
             verb, od, _ = g.decide(h)
             obj = od.sample()
             act = g.act_index(verb, obj)
-            _, ev = w.step(int(verb), int(obj), evaluation.choose_mod(g, h, verb, obj))
+            _, ev = w.step(int(verb), int(obj), evaluation.choose_mod(g, h, verb, obj, w))
             self.l_ev = ev
             if bool(g.switch(h).sample().item()):          # talks alongside
                 ev["words"] = words_from(self.u.ws, g.speak(h, len(self.u.ws.vocab_list))[0][0])
@@ -163,11 +164,12 @@ class Runtime:
     def _kogli_step(self):
         """Kogli lives one step too: hears NikolAI and its own teacher, acts, maybe talks."""
         g, w = self.u.brain, self.kw
+        evaluation.expect(g, w, self.k_heard)
         h = g.think(torch.tensor([w.senses()]), sentence_tensor([self.k_heard]), self.k_last, self.kh)
         verb, od, _ = g.decide(h)
         obj = od.sample()
         act = g.act_index(verb, obj)
-        _, ev = w.step(int(verb), int(obj), evaluation.choose_mod(g, h, verb, obj))
+        _, ev = w.step(int(verb), int(obj), evaluation.choose_mod(g, h, verb, obj, w))
         self.k_said = []
         if bool(g.switch(h).sample().item()):
             self.k_said = words_from(self.u.ws, g.speak(h, len(self.u.ws.vocab_list))[0][0])

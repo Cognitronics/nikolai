@@ -41,6 +41,8 @@ Phase 10 – Understands sizes and combines words (version 17): a big and a smal
           "big" and "small" with apples and branches, but "stone" only as "small stone". If it gets "big stone" right
           too, it combines words it never heard together (systematic generalisation).
 Phase 10b – Imagines combinations: does "big stone" (never heard) make it expect a bigger stone than "small stone"?
+          Version 18: the hands can use imagination – before choosing between a big and a small one, it compares both
+          with what it expects from what it heard. "Trust" = how much it has learned to follow that.
 Phase 7 – Answers questions about itself: a random situation (place, hunger, what it carries, what it just did),
           then the teacher asks ("Where are you?" …). Is its answer exactly the true one? Baseline: always giving the
           most frequent answer. A question type counts when it is right in at least 70 % and 30 points above that
@@ -99,20 +101,36 @@ def _creature_step(g, ws, w, heard, last, h, z, random_acts):
         w.next_mod = z.randrange(len(MODS))
         words = [ws.word(z.randrange(3, len(ws.vocab_list))) for _ in range(z.randint(1, 3))] if z.random() < 0.3 else []
         return v, o, words, last, h
+    expect(g, w, heard)
     h = g.think(torch.tensor([w.senses()]), sentence_tensor([heard]), last, h)
     verb, od, _ = g.decide(h)
     obj = od.sample()
-    w.next_mod = choose_mod(g, h, verb, obj)
+    w.next_mod = choose_mod(g, h, verb, obj, w)
     talks = bool(g.switch(h).sample().item())
     words = words_from(ws, g.speak(h, len(ws.vocab_list))[0][0]) if talks else []
     return int(verb), int(obj), words, g.act_index(verb, obj), h
 
 
-def choose_mod(g, h, verb, obj):
-    """Which one the hands choose (0 = any if it doesn't matter, or for brains without this part)."""
+def expect(g, w, heard):
+    """Version 18: what it expects right now (kept on the world: one per body), updated with what it just heard."""
+    from . import imagination as V
+    if not hasattr(w, "exp_mu"):
+        w.exp_mu, w.exp_sd = V.fresh_expectation(1)
+    if hasattr(g, "imagine"):
+        w.exp_mu, w.exp_sd = V.update_expectation(g, w.exp_mu, w.exp_sd, sentence_tensor([heard]),
+                                                  torch.tensor([bool(heard)]))
+
+
+def choose_mod(g, h, verb, obj, w=None):
+    """Which one the hands choose (0 = any if it doesn't matter, or for brains without this part). With the world
+    (version 18) it also looks at a big and a small one and compares them with what it expects."""
     if not hasattr(g, "mod_head") or not bool(relevant(verb, obj)[0]):
         return 0
-    return int(g.choose(h, verb).sample())
+    match = None
+    if w is not None and hasattr(g, "trust") and hasattr(w, "exp_mu"):
+        from . import imagination as V
+        match = torch.tensor([V.match(w, verb[0], obj[0], w.exp_mu[0], w.exp_sd[0], w.z)])
+    return int(g.choose(h, verb, match).sample())
 
 
 # Phase 6b: instructions with words NikolAI only knows from reading – the teacher never says them
@@ -184,10 +202,11 @@ def phase1(g, ws, steps=600, seeds=5, random_acts=False):
             if random_acts:
                 v, o, m = z.randrange(len(VERBS)), z.randrange(len(OBJECTS)), z.randrange(len(MODS))
             else:
+                expect(g, w, heard)
                 h = g.think(torch.tensor([w.senses()]), sentence_tensor([heard]), last, h)
                 verb, od, _ = g.decide(h)
                 obj = od.sample()
-                m = choose_mod(g, h, verb, obj)
+                m = choose_mod(g, h, verb, obj, w)
                 v, o, last = int(verb), int(obj), g.act_index(verb, obj)
             _, ev = w.step(v, o, m)
             hunger += w.hunger
@@ -205,11 +224,12 @@ def phase3(g, ws, steps=300, seed=7):
     correct = total = 0
     examples = []
     for _ in range(steps):
+        expect(g, w, heard)
         h_before = g.think(torch.tensor([w.senses()]), sentence_tensor([heard]), last, h)
         verb, od, _ = g.decide(h_before)
         obj = od.sample()
         act = g.act_index(verb, obj)
-        _, ev = w.step(int(verb), int(obj), choose_mod(g, h_before, verb, obj))
+        _, ev = w.step(int(verb), int(obj), choose_mod(g, h_before, verb, obj, w))
         b = L.describe(ev, w)
         if b:
             z_state = g.speech_state(h_before, torch.tensor([w.senses()]), act)
@@ -451,6 +471,8 @@ def phase10(g, ws, trials=30):
             p["verdict"] = "understood" if p["big"] >= 0.7 and p["small"] >= 0.7 else "not yet"
         pairs.append(p)
     out = {"tasks": rows, "pairs": pairs}
+    if hasattr(g, "trust"):
+        out["trust"] = round(float(g.trust.detach()), 3)        # version 18: how much the hands follow imagination
     if hasattr(g, "imagine"):
         out["imagined"] = _imagined_sizes(g, ws)
     return out
@@ -467,6 +489,9 @@ def _imagined_sizes(g, ws):
             mu, _ = g.imagine(sentence_tensor([ws.encode_ids(L.words(f"{x} {V.THING_WORD[d]}"))]))
             r[x] = round(float(mu[0, V.IDX["size"]]), 3)
             r["true_" + x] = V.SIZE_OF[(d, x)][0]
+        for x in SIZES:                                        # version 18: from the whole instruction
+            mu, _ = g.imagine(sentence_tensor([ws.encode_ids(L.words(L.SIZED[("take", d, x)]))]))
+            r["sentence_" + x] = round(float(mu[0, V.IDX["size"]]), 3)
         r["difference"] = round(r["big"] - r["small"], 3)
         r["true_difference"] = round(r["true_big"] - r["true_small"], 3)
         r["verdict"] = "understood" if r["difference"] >= 0.5 * r["true_difference"] else "not yet"

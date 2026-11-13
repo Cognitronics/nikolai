@@ -230,7 +230,12 @@ class World:
                 ev.update(ok=True, target=target)
         elif verb == "take" and obj in THINGS:
             if self.backpack[obj] < MAX_CARRY:
-                size = self._remove(self.ground[self.place], self.ground_big[self.place], obj, mod)
+                size = None
+                gb = self.ground_big[self.place].get(obj, 0)
+                wanted_here = mod == "any" or (gb if mod == "big" else self.ground[self.place][obj] - gb) > 0
+                at_source = obj != "apple" and obj in SOURCES.get(self.place, [])
+                if wanted_here or not at_source:              # at the tree/riverbank it can pick the size it wants
+                    size = self._remove(self.ground[self.place], self.ground_big[self.place], obj, mod)
                 if size is not None:
                     self._add(self.backpack, self.backpack_big, obj, size)
                     ev.update(ok=True, size=size, choice=self.had_choice)

@@ -18,6 +18,12 @@ expectations: certain = sharp, uncertain = blurred, varying = flickering between
 Version 17: apples, branches and stones are big or small. A big one is bigger and heavier. When it hears "big apple"
 it should expect a bigger one than for "small apple" – and for "big stone", which it never heard, too (Phase 10b).
 
+Version 18 – imagination guides the hands: NikolAI keeps an expectation of what it just heard about ("Take a big
+stone!" → something stone-like and big), from whole sentences, not only single words. When it is about to take, put
+down or eat one of two things – a big and a small one – it looks at both and compares each with what it expects:
+the better match gets a push (log-likelihood under its expectation; predictive coding). How much it trusts this push
+is learned (a single number, "trust"). Sentences that name no thing ("Well done!") are taught to stay fog.
+
 The paint box (circle, line, colour, blur) is given, like crayons for a child. What it paints, and how exactly,
 comes only from its experience.
 """
@@ -128,3 +134,62 @@ def visible_things(world):
 
 UNKNOWN = ["dragon", "house", "sun", "moon", "ship", "castle", "flower", "bird", "fish", "cat", "dog", "horse",
              "car", "door", "king", "queen", "cloud", "star", "boat", "bread"]       # named, never touched
+
+
+# ------------------------------------------------------------ version 18: expectation guides the hands
+EXPECT_DECAY = 1.15                     # each step, a kept expectation becomes a little less sure
+FOG_SD = 0.5
+MATCH = [IDX[n] for n in VISIBLE]       # what it can compare by looking
+
+
+def fresh_expectation(n=1):
+    return torch.full((n, P), 0.5), torch.full((n, P), FOG_SD)
+
+
+@torch.no_grad()
+def update_expectation(g, mu, sd, sentences, heard):
+    """mu, sd: (B, P) what it expects right now. sentences: (B, L) what it just heard; heard: (B,) bool.
+    A new sentence replaces the expectation if it is surer than the (fading) old one."""
+    sd = (sd * EXPECT_DECAY).clamp(max=FOG_SD)
+    if sentences.shape[1] == 0 or not bool(heard.any()):
+        return mu, sd
+    m, lv = g.imagine(sentences)
+    s = (0.5 * lv).exp()
+    better = heard & (s[:, MATCH].mean(1) < sd[:, MATCH].mean(1))
+    mu = torch.where(better.unsqueeze(1), m, mu)
+    sd = torch.where(better.unsqueeze(1), s, sd)
+    return mu, sd
+
+
+def _loglik(x, mu, sd):
+    zz = ((x[MATCH] - mu[MATCH]) / sd[MATCH]).clamp(-3, 3)
+    return float((-0.5 * zz ** 2 - sd[MATCH].log()).sum())
+
+
+def candidates(world, verb, obj, z):
+    """When it is about to take, put down or eat one of a big and a small one: how both look right now
+    (big, small) – else None."""
+    from .world import OBJECTS, SOURCES, VERBS
+    v, d = VERBS[int(verb)], OBJECTS[int(obj)]
+    if d not in SIZED_THINGS or v not in ("take", "put", "eat"):
+        return None
+    if v == "take":
+        n, nb = world.ground[world.place][d], world.ground_big[world.place][d]
+        both = (nb > 0 and n - nb > 0) or (d != "apple" and d in SOURCES.get(world.place, []))
+    else:
+        n, nb = world.backpack[d], world.backpack_big[d]
+        both = nb > 0 and n - nb > 0
+    if not both:
+        return None
+    return perceive(d, "seeing", z, "big")[0], perceive(d, "seeing", z, "small")[0]
+
+
+def match_from(cand, mu, sd):
+    """How much better the big one fits what it expects than the small one (log-likelihood difference)."""
+    if cand is None:
+        return 0.0
+    return max(-10.0, min(10.0, _loglik(cand[0], mu, sd) - _loglik(cand[1], mu, sd)))
+
+
+def match(world, verb, obj, mu, sd, z):
+    return match_from(candidates(world, verb, obj, z), mu, sd)

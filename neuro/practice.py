@@ -108,6 +108,8 @@ class Practice:
         self.things_buffer = []
         self.experience = {}                           # word → {sense: how often}
         self.senses = torch.tensor([w.senses() for w in self.worlds])
+        self.exp_mu, self.exp_sd = V.fresh_expectation(worlds)     # version 18: what it expects right now
+        self.fog_sentences = []                                    # heard sentences that name no thing
         self.steps = 0
         self.stats = {"said": 0, "reward": 0.0, "curiosity": 0.0, "instructions": 0, "fulfilled": 0, "eaten": 0, "hunger": 0.0,
                           "speech_error": 0.0, "world_error": 0.0, "repeat_error": 0.0, "hindsight_error": 0.0, "reading_error": 0.0, "answer_error": 0.0, "imagination_error": 0.0, "n": 0}
@@ -119,7 +121,12 @@ class Practice:
         g = self.brain
         verb, od, vd = g.decide(h)
         obj = od.sample()
-        md = g.choose(h, verb)
+        # version 18: if it is about to choose between a big and a small one, it looks at both and compares them
+        # with what it expects
+        cands = [V.candidates(w, verb[i], obj[i], self.z) for i, w in enumerate(self.worlds)]
+        match = torch.tensor([V.match_from(c, self.exp_mu[i], self.exp_sd[i]) for i, c in enumerate(cands)])
+        self._cands, self._match = cands, match
+        md = g.choose(h, verb, match)
         mod = md.sample()
         rel = relevant(verb, obj)
         mod = torch.where(rel, mod, torch.zeros_like(mod))       # "which one" only where it matters
@@ -133,7 +140,7 @@ class Practice:
     def _reevaluate(self, h, s):
         g = self.brain
         _, od, vd = g.decide(h, s["verb"])
-        md = g.choose(h, s["verb"])
+        md = g.choose(h, s["verb"], s["match"])
         rel = relevant(s["verb"], s["obj"])
         sd = g.switch(h)
         _, speak_lp, speak_ent = g.speak(h, s["known"], s["words"])
@@ -163,6 +170,8 @@ class Practice:
         with torch.no_grad():
             for t in range(self.T):
                 sentences = sentence_tensor(self.heard)
+                self.exp_mu, self.exp_sd = V.update_expectation(
+                    g, self.exp_mu, self.exp_sd, sentences, torch.tensor([bool(x) for x in self.heard]))
                 h = g.think(self.senses, sentences, self.last_act, h)
                 known = len(self.ws.vocab_list)
                 verb, obj, mod, talks, speak_words, logp_alt = self.act_once(h, known)
@@ -182,7 +191,9 @@ class Practice:
                     ev, k = evs[i], body[i]
                     j = self.partner[i] if self.partner else None
                     le.friend_said = evs[j].get("words", []) if j is not None else []
-                    sentence, l_reward, b, _ = le.respond(w, ev)
+                    task_before = le.task
+                    sentence, l_reward, b, done = le.respond(w, ev)
+                    self._sentence_lessons(ev, b, task_before if done else None, sentence)
                     ans.append(self.ws.encode_ids(L.words(L.answer(le.question, w, ev, le.name))) + [END]
                                if le.question else [])
                     oks.append(bool(ev["ok"]) and ev["verb"] != "wait")
@@ -190,6 +201,8 @@ class Practice:
                     relabel = L.hindsight(ev)
                     lesson.append(L.size_lesson(ev, w))
                     hs.append(self.z.choice(relabel) if relabel else None)
+                    if hs[-1] and ev.get("size"):
+                        self._sentence_lessons(ev, hs[-1], None, None)
                     team = TEAM * max(0.0, body[j]) if j is not None else 0.0     # shares the joy, not the pain
                     reward.append(k + team + l_reward - (SPEECH_COST if talks[i] else 0.0))
                     if ev["verb"] == "eat" and ev["ok"]:
@@ -212,6 +225,7 @@ class Practice:
                                  "obj": obj, "mod": mod, "act": act, "r": r, "senses_new": senses_new, "descr": descr,
                                  "words": speak_words, "talks": talks, "known": known, "logp": logp_alt,
                                  "value": value, "repeat": self.repeat_targets, "hs": hs, "ok": oks, "lesson": lesson,
+                                 "match": self._match, "cands": self._cands,
                                  "answers": self.answers})
                 self.stats["reward"] += float(torch.tensor(reward).mean())
                 self.stats["curiosity"] += float(curiosity.mean())
@@ -344,7 +358,7 @@ class Practice:
         if not hasattr(self, "imag_opt") or self.imag_opt_for is not g:
             self.imag_opt = torch.optim.Adam(g.imagination.parameters(), lr=2e-3)
             self.imag_opt_for = g
-        unknown = [[self.ws.index[w]] for w in V.UNKNOWN if w in self.ws.index]
+        unknown = [[self.ws.index[w]] for w in V.UNKNOWN if w in self.ws.index] + self.fog_sentences
         for _ in range(IMAGINATION_STEPS):
             sample_ = self.z.sample(self.things_buffer, min(128, len(self.things_buffer)))
             words, x, m = zip(*sample_)
@@ -381,7 +395,30 @@ class Practice:
         sentences = [self.ws.encode_ids(L.words(x)) for _, _, x in items]
         h = g.think(senses, sentence_tensor(sentences), last, h)
         target = torch.tensor([L.MOD_OF[x] for _, _, x in items])
-        return -g.choose(h, verb).log_prob(target).mean()
+        match = self._match_for([storage[t]["cands"][i] for t, i, _ in items], sentences)
+        return -g.choose(h, verb, match).log_prob(target).mean()
+
+    @torch.no_grad()
+    def _match_for(self, cands, sentences):
+        """Version 18: the match it would have seen if it had just heard these sentences."""
+        mu, lv = self.brain.imagine(sentence_tensor(sentences))
+        sd = (0.5 * lv).exp()
+        return torch.tensor([V.match_from(c, mu[k], sd[k]) for k, c in enumerate(cands)])
+
+    def _sentence_lessons(self, ev, sentence, task, heard):
+        """Version 18: imagination also learns from whole sentences – what the teacher said about a thing ("You take
+        a big apple.") or asked for ("Take a small stone!") goes with how that very thing looked. A heard sentence
+        that names no thing ("Well done!") stays fog."""
+        if heard and L.thing_from(L.words(heard)) is None and len(self.fog_sentences) < 300 and self.z.random() < 0.1:
+            self.fog_sentences.append(self.ws.encode_ids(L.words(heard)))
+        if not ev or not ev["ok"] or not ev.get("size") or len(self.perceptions) >= PERCEPTIONS_MAX:
+            return
+        if task is not None:
+            sentence = L.instruction(task)
+        if not sentence or L.thing_from(L.words(sentence)) != ev["obj"] or self.z.random() < 0.5:
+            return
+        x, m = V.perceive(ev["obj"], "seeing", self.z, ev["size"])
+        self.perceptions.append((self.ws.encode_ids(L.words(sentence)), x, m))
 
     def _hindsight(self, storage, h_before):
         """One successful action per world: the steps before it once more, with the fitting sentence at the start."""
@@ -416,9 +453,17 @@ class Practice:
             # "a stone" → any); before it, what it really chose
             mod = torch.tensor([L.MOD_OF.get(sentence, 0) if s0 + k >= e else int(storage[t]["mod"][i])
                                 for (i, s0, e, sentence), t in zip(samples, ts)])
+            # what it would have expected (version 18): at the action, from the sentence put in at the start
+            match = torch.stack([storage[t]["match"][i] for (i, _, _, _), t in zip(samples, ts)])
+            last_ = [k_ for k_, (i, s0, e, _) in enumerate(samples) if s0 + k >= e]
+            if last_:
+                m_new = self._match_for([storage[ts[k_]]["cands"][samples[k_][0]] for k_ in last_],
+                                        [self.ws.encode_ids(L.words(samples[k_][3])) for k_ in last_])
+                match = match.clone()
+                match[last_] = m_new
             h = g.think(senses, sentence_tensor(sentences), last, h)
             _, od, vd = g.decide(h, verb)
-            lp = vd.log_prob(verb) + od.log_prob(obj) + g.choose(h, verb).log_prob(mod) * relevant(verb, obj)
+            lp = vd.log_prob(verb) + od.log_prob(obj) + g.choose(h, verb, match).log_prob(mod) * relevant(verb, obj)
             total_sum = total_sum - (lp * active).sum()
             n_total += int(active.sum())
         return total_sum / max(1, n_total)
