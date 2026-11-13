@@ -4,6 +4,17 @@
 no planner: NikolAI only gets its senses (where am I, what do I see, what am I carrying, how hungry am I), hears
 what its teacher says, reads children’s stories, and learns.
 
+## Version 12: English code
+
+The whole code base now uses English names – files, classes, functions, variables, command-line options and the
+keys inside saved brains – so anyone can read and contribute. Nothing about NikolAI's behaviour changed: with the
+same random seed, version 12 trains and tests exactly like version 11.
+
+Brains saved by older versions still work: `neuro/compat.py` renames their contents when they are loaded, so
+NikolAI keeps everything it has learned (the next save is in the new format, which older versions can't read –
+keep a copy if you want to go back). The old German command-line options (`--speicher`, `--leser`, `--buch`,
+`--stunden`, `--welten`) are still accepted.
+
 ## Version 11: practice where it’s hard
 
 - **Rest days:** on about 40 % of practice days the apple tree bears nothing. Then there are only windfall apples –
@@ -43,12 +54,12 @@ and actions stay (each reading brain has an id, so this happens exactly once per
 and answers have to be relearned for a while after that.
 
 ```bash
-mkdir -p ~/nikolai/buecher/babylm && cd ~/nikolai/buecher/babylm
+mkdir -p ~/nikolai/books/babylm && cd ~/nikolai/books/babylm
 for f in aochildes bnc_spoken cbt children_stories gutenberg open_subtitles qed simple_wikipedia switchboard wikipedia; do
   wget -c https://huggingface.co/datasets/cambridge-climb/BabyLM/resolve/main/clean/100M/$f.txt
 done
-sudo cp ~/nikolai/neuro11/*.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl start nikolai-lesen
+sudo cp ~/nikolai/nikolai/*.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl start nikolai-reading
 ```
 
 ## Version 8: talking
@@ -148,18 +159,18 @@ Since version 6 the teacher also:
 ## Reading (version 7)
 
 ```bash
-mkdir -p ~/nikolai/buecher
-wget -c -O ~/nikolai/buecher/tinystories.txt \
+mkdir -p ~/nikolai/books
+wget -c -O ~/nikolai/books/tinystories.txt \
   https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-train.txt
-sudo cp ~/nikolai/neuro11/nikolai-lesen.service ~/nikolai/neuro11/nikolai-neuro.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl start nikolai-lesen
-journalctl -u nikolai-lesen -f          # watch it read (a sample story every 2 minutes)
+sudo cp ~/nikolai/nikolai/nikolai-reading.service ~/nikolai/nikolai/nikolai-neuro.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl start nikolai-reading
+journalctl -u nikolai-reading -f          # watch it read (a sample story every 2 minutes)
 ```
 
-The reading service stops NikolAI, reads for 8 hours (all 7 free cores), saves `~/nikolai/neuro/leser.pt` and then
+The reading service stops NikolAI, reads for 8 hours (all 7 free cores), saves `~/nikolai/neuro/reader_babylm.pt` and then
 starts NikolAI again: it keeps its body, senses and actions, but hears and speaks with its reading brain – so
 instructions have to be relearned at first. Don’t start NikolAI by hand while it is reading. Read more later:
-start `nikolai-lesen` again – it continues where it stopped (but only a brain that hasn’t moved in yet takes it over).
+start `nikolai-reading` again – it continues where it stopped (but only a brain that hasn’t moved in yet takes it over).
 
 ## Install (mini PC)
 
@@ -167,29 +178,60 @@ start `nikolai-lesen` again – it continues where it stopped (but only a brain 
 sudo apt install -y python3-venv
 python3 -m venv ~/nikolai/neuro-venv
 ~/nikolai/neuro-venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
-cd ~/nikolai && unzip -o ~/neuro11.zip
-sudo cp ~/nikolai/neuro11/nikolai-neuro.service /etc/systemd/system/
+git clone https://github.com/Cognitronics/nikolai.git ~/nikolai/nikolai
+sudo cp ~/nikolai/nikolai/nikolai-neuro.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now nikolai-neuro
 ```
 
-Dashboard: `http://<mini-pc>:8091`. The brain is saved every 10 minutes and on stop (`~/nikolai/neuro/gehirn.pt`).
+Dashboard: `http://<mini-pc>:8091`. The brain is saved every 10 minutes and on stop (`~/nikolai/neuro/brain.pt`).
 `--threads 6` leaves two cores for everything else; `Nice=10` gives other services priority.
 `--public` makes the dashboard read-only (no talking to NikolAI) – for a public page.
+
+## Upgrading a mini PC from version 11
+
+Version 12 lives in a git clone of this repository, and the data files get English names. Once:
+
+```bash
+sudo systemctl stop nikolai-neuro
+cp ~/nikolai/neuro/gehirn.pt ~/nikolai/neuro/gehirn_v11_backup.pt      # in case you want to go back
+mv ~/nikolai/neuro/gehirn.pt ~/nikolai/neuro/brain.pt
+mv ~/nikolai/neuro/leser_babylm.pt ~/nikolai/neuro/reader_babylm.pt
+mv ~/nikolai/buecher ~/nikolai/books
+git clone https://github.com/Cognitronics/nikolai.git ~/nikolai/nikolai
+sudo rm -f /etc/systemd/system/nikolai-lesen.service
+sudo cp ~/nikolai/nikolai/*.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl start nikolai-neuro
+```
+
+Later updates: `cd ~/nikolai/nikolai && git pull && sudo systemctl restart nikolai-neuro`.
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `neuro/welt.py` | The world: places, things, hunger, recipe |
-| `neuro/lehrer.py` | The teacher: describes, names, instructs, listens |
-| `neuro/gehirn.py` | The neural brain |
-| `neuro/ueben.py` | Practising: PPO, curiosity, repeating, describing |
-| `neuro/pruefen.py` | Tests and milestones |
-| `neuro/lesen.py` | Reading: books, vocabulary, language model, pre-reading |
+| `neuro/world.py` | The world: places, things, hunger, recipe |
+| `neuro/teacher.py` | The teacher: describes, names, instructs, listens |
+| `neuro/brain.py` | The neural brain |
+| `neuro/practice.py` | Practising: PPO, curiosity, repeating, describing |
+| `neuro/evaluation.py` | Tests and milestones |
+| `neuro/reading.py` | Reading: books, vocabulary, language model, pre-reading |
 | `neuro/server.py` | Continuous training, live world, web server |
-| `neuro/seite.html` | The dashboard (Cognitronics design) |
+| `neuro/page.html` | The dashboard (Cognitronics design) |
+| `neuro/names.py` | Display names of places and things |
+| `neuro/compat.py` | Loads brains saved by older versions (German names) |
 
 ## Next steps
 
 More properties so that words must be combined (“Take the red apple!”), a bigger world with real needs (winter, fire,
 wood that needs the stone axe), a second agent to talk to, and later a language model as a chatty educator.
+
+## Contributing
+
+NikolAI is an open project and help is welcome – from machine learning and neuroscience to simulation, infrastructure,
+visualisation and plain curiosity. Open an [issue](https://github.com/Cognitronics/nikolai/issues) with a question,
+an idea or something you'd like to work on, send a pull request, or write to office@cognitronics.ai.
+
+## License
+
+MIT – see [LICENSE](LICENSE).
+

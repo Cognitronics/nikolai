@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 User=georg
-WorkingDirectory=/home/georg/nikolai/neuro11
-ExecStart=/home/georg/nikolai/neuro-venv/bin/python -m neuro --web 8091 --host 0.0.0.0 --speicher /home/georg/nikolai/neuro/gehirn.pt --threads 6 --leser /home/georg/nikolai/neuro/leser_babylm.pt --buch /home/georg/nikolai/buecher/babylm
+WorkingDirectory=/home/georg/nikolai/nikolai
+ExecStart=/home/georg/nikolai/neuro-venv/bin/python -m neuro --web 8091 --host 0.0.0.0 --save /home/georg/nikolai/neuro/brain.pt --threads 6 --reader /home/georg/nikolai/neuro/reader_babylm.pt --book /home/georg/nikolai/books/babylm
 Restart=always
 Nice=10
 

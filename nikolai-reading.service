@@ -1,0 +1,13 @@
+[Unit]
+Description=NikolAI reads – learns English from BabyLM (human-written, child-scale) before returning to its world (Cognitronics)
+After=network.target
+
+[Service]
+Type=simple
+User=georg
+WorkingDirectory=/home/georg/nikolai/nikolai
+# free the CPU while reading, and start NikolAI again (with its new reading brain) when reading is done
+ExecStartPre=+/bin/systemctl stop nikolai-neuro
+ExecStart=/home/georg/nikolai/neuro-venv/bin/python -m neuro.reading --book /home/georg/nikolai/books/babylm --reader /home/georg/nikolai/neuro/reader_babylm.pt --hours 8 --threads 7
+ExecStopPost=+/bin/systemctl start nikolai-neuro
+Nice=10
