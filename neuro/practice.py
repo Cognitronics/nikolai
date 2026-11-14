@@ -470,10 +470,25 @@ class Practice:
 
     # ------------------------------------------------------------ saving
     def save(self, fpath, extra=None):
-        torch.save({"brain": self.brain.state_dict(), "opt": self.opt.state_dict(), "words": self.ws.vocab_list,
+        torch.save({"brain": self.brain.state_dict(), "opt": self.opt.state_dict(), "lr": self.lr, "words": self.ws.vocab_list,
                     "capacity": self.ws.capacity, "words_read": self.words_read, "with_reader": self.with_reader,
                     "reader_id": self.reader_id, "experience": self.experience, "things_buffer": self.things_buffer[-1000:],
                     "steps": self.steps, "extra": extra or {}}, fpath + ".tmp")
+        import os
+        os.replace(fpath + ".tmp", fpath)
+
+    def set_lr(self, lr):
+        """Version 19: the learning speed can change (the safety net slows down after going back)."""
+        self.lr = lr
+        for group in self.opt.param_groups:
+            group["lr"] = lr
+
+    def snapshot(self, fpath, brain, ws, steps, extra=None):
+        """Save a copy of a brain (e.g. the one just tested) in the same format as save()."""
+        torch.save({"brain": brain.state_dict(), "lr": self.lr, "words": ws.vocab_list, "capacity": ws.capacity,
+                    "words_read": self.words_read, "with_reader": self.with_reader, "reader_id": self.reader_id,
+                    "experience": dict(self.experience), "things_buffer": [], "steps": steps, "extra": extra or {}},
+                   fpath + ".tmp")
         import os
         os.replace(fpath + ".tmp", fpath)
 
@@ -497,6 +512,7 @@ class Practice:
             except (ValueError, KeyError):
                 pass
             self.steps, self.words_read, self.with_reader = d["steps"], d.get("words_read", 0), True
+            self.set_lr(d.get("lr", self.lr))
             self.reader_id = d.get("reader_id")
             self.experience = d.get("experience", {})
             self.things_buffer = d.get("things_buffer", [])

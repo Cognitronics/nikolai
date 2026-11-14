@@ -203,6 +203,7 @@
   <p class="sub r">Every milestone is a test against a baseline: with and without the spoken words, and against acting at random. It only counts as stable once it holds in three tests in a row.</p>
   <ol class="ms" id="ms"><li><span class="n">—</span><div><h3 class="small">First test is running …</h3></div></li></ol>
   <p class="small hint" id="testbench"></p>
+  <p class="small hint" id="safety"></p>
 </section>
 
 <section id="learning" class="alt">
@@ -410,6 +411,13 @@ function draw(z){
                  : e ? "Was stable before — not in the latest test" : "Not reached yet";
       return `<li><span class="n">${String(i + 1).padStart(2, "0")}</span><div><h3>${esc(m.en)}</h3><p>${esc(info)}</p></div><span class="chip ${m.status}">${CHIP[m.status] || ""}</span></li>`;
     }).join("");
+  }
+  const sf = z.safety;
+  if (sf && sf.best_score != null){
+    const ev = sf.events || [];
+    $("#safety").textContent = `Safety net: best test so far ${sf.best_score} milestones passed (${sf.best_t}), latest ${sf.score ?? "–"}. `
+      + `If it drops by ${4} or more twice in a row, NikolAI goes back to the best brain and learns more slowly. Learning speed now ${Math.round(sf.lr / sf.base_lr * 100)} %. `
+      + (ev.length ? `Went back ${ev.length}× — last on ${ev[ev.length - 1].t}.` : "Never needed so far.");
   }
   const p = z.last_eval;
   if (p){

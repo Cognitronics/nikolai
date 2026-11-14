@@ -57,12 +57,17 @@ class Runtime:
                 new_reader = reader
         del old
         self.u = Practice(worlds=worlds, seed=int(time.time()) % 100000, reader=new_reader, book=book)
+        self.base_lr = self.u.lr
         self.reading_since = None
         self.log = []
         self.curves, self.last_eval, self.milestones, self.runtime = [], None, {}, 0.0
         self.reached = {}
         self.m_history = []
         self.english_since = 0
+        # version 19 – safety net: the best brain so far is kept; if the tests drop clearly twice in a row, NikolAI
+        # goes back to it and learns more slowly for a while (idea from mini-AGI's revert guard, volotat 2026)
+        self.best_path = storage + ".best"
+        self.safety = {"best_score": None, "best_steps": None, "best_t": None, "low": 0, "events": []}
         if os.path.exists(storage):
             extra = self.u.restore(storage)
             self.runtime = extra.get("runtime", 0.0)
@@ -72,6 +77,7 @@ class Runtime:
                 self.milestones = extra.get("milestones", {})
                 self.reached = extra.get("reached", {})
                 self.m_history = extra.get("m_history", [])
+                self.safety.update(extra.get("safety", {}))
                 self.english_since = extra.get("english_since", 0)
             else:                                   # a German brain: English starts now, curves and milestones anew
                 self.english_since = self.u.steps
@@ -267,12 +273,40 @@ class Runtime:
                 self.note(f"Milestone reached and stable: {k}", "milestone")
         e["steps"] = self.u.steps
         self.last_eval, self.milestones = e, status
+        self._safety(sum(bool(v) for v in m.values()), g, ws, e["steps"])
+
+    SAFETY_DROP = 4            # this many milestones fewer than the best …
+    SAFETY_TIMES = 2           # … in this many tests in a row → back to the best brain
+    LR_MIN_SHARE = 0.25
+
+    def _safety(self, score, g, ws, steps):
+        s = self.safety
+        s["score"] = score
+        if s["best_score"] is None or score >= s["best_score"]:
+            self.u.snapshot(self.best_path, g, ws, steps)
+            if s["best_score"] is not None and score > s["best_score"] and self.u.lr < self.base_lr:
+                with self.lock:                                # better again: speed up a little
+                    self.u.set_lr(min(self.base_lr, self.u.lr * 1.25))
+            s.update(best_score=score, best_steps=steps, best_t=time.strftime("%d.%m. %H:%M"), low=0)
+            return
+        s["low"] = s["low"] + 1 if score <= s["best_score"] - self.SAFETY_DROP else 0
+        if s["low"] >= self.SAFETY_TIMES and os.path.exists(self.best_path):
+            with self.lock:
+                self.u.new_reader_flag = False
+                self.u.restore(self.best_path)
+                self.u.set_lr(max(self.base_lr * self.LR_MIN_SHARE, self.u.lr * 0.5))
+            s["low"] = 0
+            ev = {"t": time.strftime("%d.%m. %H:%M"), "score": score, "best": s["best_score"],
+                  "back_to_steps": s["best_steps"], "lr": self.u.lr}
+            s["events"] = (s["events"] + [ev])[-20:]
+            self.note(f"Safety net: tests dropped to {score} milestones (best {s['best_score']}) twice – "
+                      f"back to the brain from {s['best_t']}, learning more slowly now.", "milestone")
 
     def save(self):
         with self.lock:
             self.u.save(self.storage, {"curves": self.curves, "last_eval": self.last_eval,
                                              "milestones": self.milestones, "reached": self.reached,
-                                             "m_history": self.m_history, "version": 15,
+                                             "m_history": self.m_history, "version": 19, "safety": self.safety,
                                              "english_since": self.english_since, "reading_since": self.reading_since,
                                              "word_diary": self.word_diary.to_dict(), "imag_history": self.imag_history,
                                              "runtime": self.runtime})
@@ -311,6 +345,7 @@ class Runtime:
         return {"name": self.name, "steps": self.u.steps, "runtime_h": round(self.runtime / 3600, 2),
                 "words": len(self.u.ws.vocab_list) - 4 if self.u.with_reader else len(self.u.ws.vocab_list) - 3, "worlds": self.u.n, "public": self.is_public,
                 "curves": list(self.curves[-600:]), "last_eval": p, "milestones": milestones,
+                "safety": {**self.safety, "lr": self.u.lr, "base_lr": self.base_lr},
                 "log": list(self.log[-80:]),
                 "live": {"place": PLACE_NAME[w.place], "hunger": round(w.hunger, 2),
                          "backpack": _backpack(w),

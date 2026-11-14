@@ -39,9 +39,11 @@ second by second.*
   a small stone!" or "Eat the big apple!" – but never "big stone". Does NikolAI understand it anyway, from "big"
   heard with apples and branches and "stone" heard only as "small stone"? That is the classic test of systematic generalisation
   (Lake & Baroni 2018; Hill et al. 2020), and small networks often fail it.
-- **Lets imagination guide its hands.** Before it takes one of a big and a small thing, it looks at both and compares
-  them with what it expects from what it just heard ("Take a big stone!" → something stone-like and big). The better
-  match gets a push; how much it trusts that push is learned.
+- **Lets imagination choose for its hands.** Before it takes one of a big and a small thing, it looks at both and
+  compares them with what it expects from what it just heard ("Take a big stone!" → something stone-like and big).
+  Its hands only decide whether the size matters at all; which one – big or small – comes from imagination alone.
+- **Has a safety net.** The best brain so far is kept after every test. If the tests drop clearly twice in a row, it
+  goes back to that brain and learns more slowly for a while (idea from mini-AGI's revert guard).
 - **Shows its word memory.** A word cloud of what it says, the words closest to any word in its head (from books and
   from its world), and an Obsidian vault of all of it.
 
@@ -139,6 +141,12 @@ older versions (with German names) load as they are.
   from 4 % to 23 %) – but the old habit "a stone is a small one" is still stronger, and its trust in imagination
   even sank a little (1.00 → 0.93). The likely reason: in practice the habit is never wrong, so nothing teaches it
   to trust imagination more. Not solved yet – and shown as such on the dashboard.
+- **19** Only imagination chooses big or small; the hands' own habit no longer hears the sentence. Tested against
+  version 18 (two one-hour runs each, same start, 40 trials per sentence): for the never-heard "big stone" it now
+  takes the big one in 42–64 % instead of 15–30 %, and the size word changes its choice about 2.5 times as much.
+  In single tests during learning it passed the full bar (both sizes ≥ 70 %) for "Put down the big stone!" – not
+  yet stable. Without a size word it now guesses (about half) instead of always taking the small stone: the habit
+  "a stone is a small one" is gone. Plus a safety net for long unattended runs.
 
 ## Next
 

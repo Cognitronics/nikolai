@@ -85,6 +85,12 @@ class Brain(nn.Module):
             self.mod_head[2].bias.copy_(torch.tensor([2.0, 0.0, 0.0]))     # at first: just any
         # version 18: how much the hands trust imagination ("which one fits what I expect?")
         self.trust = nn.Parameter(torch.tensor(1.0))
+        # version 19: the hands only decide WHETHER the size matters ("choose" or "any"). WHICH one – big or small – comes
+        # from imagination alone: the one that fits better what it expects. (mod_head from versions 17-18 stays in the
+        # brain so older brains load, but is no longer used.)
+        self.gate_head = nn.Sequential(nn.Linear(h + 32, 64), nn.ReLU(), nn.Linear(64, 1))
+        with torch.no_grad():
+            self.gate_head[2].bias.fill_(-1.4)                              # at first: mostly any
         self.world_model = nn.Sequential(nn.Linear(h + 32, 256), nn.ReLU(), nn.Linear(256, SENSES))
         self.speech_start = nn.Linear(h + 128 + 32, h)
         self.speech = nn.GRU(WORD_DIM, h, batch_first=True)
@@ -169,12 +175,15 @@ class Brain(nn.Module):
         return verb, od, vd
 
     def choose(self, h, verb, match=None):
-        """Which one the hands choose (any / big / small). match (version 18): how much better the big one fits what
-        it expects than the small one – pushes big or small, as much as it trusts its imagination."""
-        logits = self.mod_head(torch.cat([h, self.verb_emb(verb)], 1))
-        if match is not None:
-            logits = logits + self.trust * match.unsqueeze(1) * torch.tensor([0.0, 0.5, -0.5])
-        return torch.distributions.Categorical(logits=logits)
+        """Which one the hands choose (any / big / small). Version 19: "any" or "choose" is decided from what it heard
+        and its state; if it chooses, imagination alone says which: P(big) = sigmoid(trust · match), where match =
+        how much better the big one fits what it expects than the small one (0 if there is nothing to compare)."""
+        g = torch.sigmoid(self.gate_head(torch.cat([h, self.verb_emb(verb)], 1))).squeeze(1)
+        if match is None:
+            match = torch.zeros_like(g)
+        pb = torch.sigmoid(self.trust * match)
+        probs = torch.stack([1 - g, g * pb, g * (1 - pb)], 1).clamp(min=1e-6)
+        return torch.distributions.Categorical(probs=probs)
 
     def speak(self, h, known, words=None):
         """Talking as an action: samples up to SPEECH_MAX words (only heard ones). Returns (words, logp, entropy).
