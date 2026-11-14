@@ -147,6 +147,10 @@ older versions (with German names) load as they are.
   In single tests during learning it passed the full bar (both sizes ≥ 70 %) for "Put down the big stone!" – not
   yet stable. Without a size word it now guesses (about half) instead of always taking the small stone: the habit
   "a stone is a small one" is gone. Plus a safety net for long unattended runs.
+- **20** (not released) two learning speeds, as in mini-AGI: reading, hearing, speaking, perception and memory at a
+  tenth of the speed. Tested against version 19 (two one-hour runs each): old skills did not get steadier – describing
+  what just happened (Phase 3) got clearly worse (0.68–0.77 instead of 0.85–0.92), because the slow speech could not
+  keep up with the new sentences with sizes. "Big stone" about the same. Not shipped.
 
 ## Next
 
