@@ -41,33 +41,56 @@ neuro/
 | **Imagination** | Predictive coding (Rao & Ballard 1999): 14 properties (colour, size, shape, surface, weight, taste), uncertainty-aware |
 | **Tests** | 10+ phases, each with controls (with sentence, without, random, made-up words). "Understood" = ≥70% and ≥30pts better than baseline |
 
-## Build & Run
+## Build & Run (Current State)
+
+The project currently requires manual setup — no Makefile or dependency file exists yet.
 
 ```bash
-# Quickstart
-make setup    # venv, torch (CPU), BabyLM corpus (~550 MB)
-make read     # pre-reading phase (~8 hours)
-make train    # live training, dashboard at http://<host>:8091
+# 1. Create virtual environment
+python3 -m venv ~/nikolai/neuro-venv
+~/nikolai/neuro-venv/bin/pip install torch -i https://download.pytorch.org/whl/cpu
 
-# Install as systemd service
-make install-service
+# 2. Clone the repo (if not already done)
+git clone https://github.com/Cognitronics/nikolai ~/nikolai/code
+
+# 3. Download BabyLM corpus (~550 MB)
+mkdir -p ~/nikolai/books/babylm && cd ~/nikolai/books/babylm
+for f in aochildes bnc_spoken cbt children_stories gutenberg \
+         open_subtitles qed simple_wikipedia switchboard wikipedia; do
+  wget -c https://huggingface.co/datasets/cambridge-climb/BabyLM/resolve/main/clean/100M/$f.txt
+done
+
+# 4. Pre-read (~8 hours)
+cd ~/nikolai/code
+python -m neuro.reading \
+  --book ~/nikolai/books/babylm \
+  --reader ~/nikolai/data/reader.pt \
+  --hours 8
+
+# 5. Live training
+python -m neuro --web 8091 --host 0.0.0.0 \
+  --save ~/nikolai/data/brain.pt \
+  --reader ~/nikolai/data/reader.pt \
+  --book ~/nikolai/books/babylm \
+  --public-port 8092 \
+  --obsidian ~/nikolai/obsidian
 ```
 
-**Dependencies:** Only `torch` (CPU build). See `requirements.txt`.
+Dashboard: `http://<host>:8091` (private, interactive), `:8092` read-only public page.  
+Brains saved every 10 minutes and on stop. Older German-named brains load via `legacy.py`.
 
 ## Development Conventions
 
 - **Language:** All code in English (since v16)
 - **Single file, single responsibility:** Each `neuro/*.py` has one clear role
-- **No external config files:** Paths passed via CLI args or `config.sh`
+- **No external config files:** Paths passed via CLI args
 - **Versioned workdirs:** `neuro17/`, `neuro18/`, `neuro19/` — each version gets its own directory
-- **Brains saved as `.pt`:** Older German-named brains still load via `legacy.py`
+- **Systemd services:** `nikolai-neuro.service` (live) and `nikolai-reading.service` (pre-read). Adjust user/paths for your system.
 
 ## What to Avoid
 
 - ❌ Don't add new dependencies without strong justification (currently only `torch`)
-- ❌ Don't change the systemd service template variables without updating `config.example.sh`
-- ❌ Don't hardcode paths — use `@VARIABLE@` templates or CLI args
+- ❌ Don't hardcode paths in code — use CLI args (systemd files are the exception)
 - ❌ Don't modify `dashboard.html` without understanding the Cognitronics design
 - ❌ Don't change test phases without updating `evaluation.py` milestones
 
@@ -81,4 +104,4 @@ make install-service
 | **Pre-reading** | `reading.py` |
 | **Memory & output** | `memory.py`, `dashboard.html` |
 | **Infrastructure** | `server.py`, `__main__.py`, `legacy.py` |
-| **Deployment** | `Makefile`, `config.example.sh`, `*.service`, `nikolai-public.sh` |
+| **Deployment** | `nikolai-neuro.service`, `nikolai-reading.service`, `nikolai-public.sh` |
